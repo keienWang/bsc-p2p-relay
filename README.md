@@ -104,7 +104,7 @@ Near-capacity in-memory load tests and measured limitations are recorded in [per
 
 Stage 2 would require independently anchored ancestry and Parlia consensus verification, plus inclusion/receipt evidence and reorganization handling. Merely copying peer heads or requesting receipts is not independent verification. This is substantial separate work, not an enabled feature or a promised delivery date.
 
-See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md), [third-party notices](THIRD_PARTY_NOTICES.md), and the [CycloneDX SBOM](docs/SBOM.md).
 
 ## License
 

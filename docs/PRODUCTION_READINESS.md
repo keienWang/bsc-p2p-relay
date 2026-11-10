@@ -21,7 +21,7 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 - [ ] Long-duration network soak under disconnects, slow readers/writers, packet loss, malformed data and realistic blocks; memory/goroutine stability and operational SLOs measured on target hardware.
 - [ ] Load/backpressure tests and capacity planning, including non-responsive peers and concurrent API clients.
 - [ ] Vulnerability scan reviewed at the exact release commit. Known transitive-library findings must not be hidden.
-- [ ] Full dependency license audit and distribution-ready corresponding source. The Go module inventory is not a standards-compliant SBOM.
+- [ ] Full dependency license audit and distribution-ready corresponding source. A target-specific CycloneDX 1.6 SBOM is recorded in SBOM.md; this does not complete the dependency-license audit or corresponding-source packaging.
 - [ ] Reproducible, checksummed release artifacts; complete corresponding source and dependency notices for redistributed binaries; hosted CI passes on the same commit.
 - [ ] Operational runbook, alert thresholds, rollout/rollback procedure and an explicit owner.
 - [ ] Signed-testnet transaction tests only with an authorized test account/budget. Do not send mainnet funds as a QA shortcut.

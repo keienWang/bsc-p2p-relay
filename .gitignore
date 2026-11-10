@@ -3,3 +3,5 @@
 *.key
 .env
 coverage.out
+
+__pycache__/
