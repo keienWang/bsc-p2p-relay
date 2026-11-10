@@ -34,7 +34,7 @@ go build -o bsc-p2p-relay ./cmd/bsc-relay
 ./bsc-p2p-relay --help
 ```
 
-These are commands to run, not a claim that tests have passed. No live transaction broadcast tests are included in this milestone's verification claims.
+These are commands to run, not a claim that tests have passed. No public-network transaction broadcast success is claimed. A separate [isolated official BSC backend/txpool integration test](integration/officialtxpool/README.md) exercises signed transactions only over loopback P2P, including stateful rejection and reconnects.
 
 ## Run
 

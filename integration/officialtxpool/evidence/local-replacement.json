@@ -1,0 +1,13 @@
+{
+  "Path": "github.com/pion/stun/v2",
+  "Version": "v2.0.0",
+  "Replace": {
+    "Path": "./compat/stunv2",
+    "Dir": "${REPOSITORY_ROOT}/compat/stunv2",
+    "GoMod": "${REPOSITORY_ROOT}/compat/stunv2/go.mod",
+    "GoVersion": "1.26.10"
+  },
+  "Dir": "${REPOSITORY_ROOT}/compat/stunv2",
+  "GoMod": "${REPOSITORY_ROOT}/compat/stunv2/go.mod",
+  "GoVersion": "1.26.10"
+}

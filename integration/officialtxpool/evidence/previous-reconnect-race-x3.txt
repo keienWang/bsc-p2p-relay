@@ -1,0 +1,4 @@
+?   	github.com/keienWang/bsc-p2p-relay/cmd/bsc-relay	[no test files]
+ok  	github.com/keienWang/bsc-p2p-relay/internal/compatcheck	1.623s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/evidence	1.360s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/relay	108.188s

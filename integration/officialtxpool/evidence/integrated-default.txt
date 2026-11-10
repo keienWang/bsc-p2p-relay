@@ -1,0 +1,24 @@
+go vet ./...
+go test -race -count=1 -timeout=300s ./...
+?   	github.com/keienWang/bsc-p2p-relay/cmd/bsc-relay	[no test files]
+ok  	github.com/keienWang/bsc-p2p-relay/internal/checkpointproof	25.101s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/compatcheck	1.145s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/evidence	1.092s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/firstepoch	62.817s
+ok  	github.com/keienWang/bsc-p2p-relay/internal/relay	1.803s
+mkdir -p bin
+go build -trimpath -buildvcs=false -o bin/bsc-relay ./cmd/bsc-relay
+python3 -m unittest discover -s scripts -p 'test_*.py'
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.003s
+
+OK
+go mod verify
+all modules verified
+python3 scripts/check_runtime_dependencies.py
+PASS: no DTLS v2/OpenPGP in relay/test package graphs or split OpenPGP module
+python3 scripts/smoke.py bin/bsc-relay
+PASS: startup, health, readiness, malformed input, shutdown, no data files
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+No vulnerabilities found.

@@ -1,0 +1,2 @@
+PASS: workflow YAML parsed; existing default job remains byte-identical; pinned actions/Go version retained; unconditional integration job uses exact tag/modfile flags; scanner install is independent; run steps pass bash -n.
+Hosted workflow execution was not tested locally.

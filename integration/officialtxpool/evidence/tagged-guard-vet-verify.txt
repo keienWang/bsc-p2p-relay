@@ -1,0 +1,2 @@
+PASS: no DTLS v2/OpenPGP in relay/test package graphs or split OpenPGP module
+all modules verified

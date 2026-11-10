@@ -8,6 +8,7 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 - Legacy, access-list and dynamic-fee transactions. Other envelopes deliberately rejected.
 - Official BSC eth/68 dual-handshake compatibility, including opt-out and synthetic pre/post-Jenner fork schedules.
 - Local RLPx transport interoperability. No external RPC client or historical chain database.
+- [Isolated official BSC backend/txpool integration](../integration/officialtxpool/README.md): real pending-pool admission, insufficient-funds rejection, deduplication and transient reconnects over loopback P2P, with no RPC endpoints.
 - Loopback-only HTTP with Host/Origin checks, body/concurrency limits and HTTP timeouts.
 - Count/byte/TTL cache bounds; per-peer bounded queue and deduplication; reconnection retry behavior.
 - Queue deadlines prevent beginning a transaction write after expiry. An already-started network write is subject to the upstream transport's timeout, not an interruptible transaction deadline.
@@ -17,7 +18,7 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 ## Required before a production broadcast service
 
 - [ ] Public-network handshake/retention against multiple independent current BSC nodes. Current build environment cannot reach direct external BSC TCP endpoints.
-- [ ] Full official-client txpool interoperability, including rejection/ignore cases and reconnects. Library handshake/RLPx tests do not establish txpool acceptance.
+- [ ] Official-binary/deployment txpool interoperability under current production fork and state conditions, including rejection/ignore cases. The isolated embedded official backend test establishes local txpool acceptance and reconnect behavior only; it does not establish public mainnet/testnet acceptance.
 - [ ] Long-duration network soak under disconnects, slow readers/writers, packet loss, malformed data and realistic blocks; memory/goroutine stability and operational SLOs measured on target hardware.
 - [ ] Load/backpressure tests and capacity planning, including non-responsive peers and concurrent API clients.
 - [ ] Vulnerability scan reviewed at the exact release commit. Known transitive-library findings must not be hidden.
