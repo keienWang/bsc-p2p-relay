@@ -17,7 +17,7 @@ The BSC STUN compatibility adapter and its security rationale are documented in 
 - Keep submitted transactions in a bounded, expiring in-memory cache and queue broadcasts to ready peers.
 - Answer requests for cached transactions; answer unavailable chain-data requests with empty results.
 
-There is no state, nonce, balance, fee-market, execution, inclusion, or finality verification. Transactions may be invalid against the current chain even after local validation. Peer retention and delivery are not guaranteed. Restarting loses the transaction cache and queues.
+The relay process provides no state, nonce, balance, fee-market, execution, authenticated inclusion, or finality verification. Transactions may be invalid against the current chain even after local validation. Peer retention and delivery are not guaranteed. Restarting loses the transaction cache and queues.
 
 ## Build and test
 
@@ -93,6 +93,12 @@ Reports whether peers are ready for relay transport. Readiness does not prove pe
 The transaction cache is bounded by 1,024 entries, 16 MiB, and a two-minute TTL. Each peer has a 64-item outbound queue. These are best-effort transport buffers, not durable delivery guarantees. Expiration, capacity limits, disconnects, and process exit can all prevent delivery.
 
 See [production acceptance gates](docs/PRODUCTION_READINESS.md) before considering deployment.
+
+## Offline evidence helper
+
+`internal/evidence` checks complete transaction and eth/68 receipt lists against a supplied header's roots. Its result explicitly says the header was not authenticated. It is not wired to the relay or any confirmation API. See [the Stage 2 trust design](docs/VERIFIED_HEAD_DESIGN.md).
+
+Near-capacity in-memory load tests and measured limitations are recorded in [performance checks](docs/PERFORMANCE.md).
 
 ## Next stage
 

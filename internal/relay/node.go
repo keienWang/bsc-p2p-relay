@@ -52,12 +52,13 @@ type pooledReply struct {
 }
 
 type peerSession struct {
-	peer      *p2p.Peer
-	rw        p2p.MsgReadWriter
-	queue     chan outbound
-	done      chan struct{}
-	receiveTx bool
-	sent      map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
+	sentNextSweep time.Time // Protected by Node.submitMu.
+	peer          *p2p.Peer
+	rw            p2p.MsgReadWriter
+	queue         chan outbound
+	done          chan struct{}
+	receiveTx     bool
+	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
 	submitMu      sync.Mutex
@@ -138,7 +139,7 @@ func (n *Node) Start() error {
 		for {
 			select {
 			case now := <-ticker.C:
-				n.cache.prune(now)
+				n.prune(now)
 			case <-n.stop:
 				return
 			}
@@ -206,16 +207,24 @@ func (n *Node) Submit(raw []byte) (Submission, error) {
 		if p.sent == nil {
 			p.sent = make(map[common.Hash]time.Time)
 		}
-		for hash, expires := range p.sent {
-			if !now.Before(expires) {
-				delete(p.sent, hash)
-			}
+		// Sweep at most once per second, unless the hard count bound needs
+		// space. The target entry is still checked exactly on every access.
+		if !now.Before(p.sentNextSweep) {
+			p.pruneSent(now)
 		}
-		if _, ok := p.sent[tx.Hash()]; ok {
-			alreadyQueued++
-			continue
+		if deadline, ok := p.sent[tx.Hash()]; ok {
+			if now.Before(deadline) {
+				alreadyQueued++
+				continue
+			}
+			delete(p.sent, tx.Hash())
 		}
 		eligible++
+		// Only a new admission needs capacity. A valid duplicate above must
+		// not rescan a full map on every call.
+		if len(p.sent) >= n.cfg.CacheCount {
+			p.pruneSent(now)
+		}
 		if len(p.sent) >= n.cfg.CacheCount {
 			continue
 		}
@@ -431,4 +440,26 @@ func (n *Node) outboundData(out outbound) any {
 		}
 	}
 	return []any{reply.requestID, txs}
+}
+
+// Periodic maintenance also releases expired per-peer hash metadata while idle.
+func (n *Node) prune(now time.Time) {
+	n.cache.prune(now)
+	n.submitMu.Lock()
+	defer n.submitMu.Unlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, p := range n.peers {
+		p.pruneSent(now)
+	}
+}
+
+// pruneSent requires the owning node's submitMu.
+func (p *peerSession) pruneSent(now time.Time) {
+	for hash, deadline := range p.sent {
+		if !now.Before(deadline) {
+			delete(p.sent, hash)
+		}
+	}
+	p.sentNextSweep = now.Add(time.Second)
 }
