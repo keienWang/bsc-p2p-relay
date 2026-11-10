@@ -53,7 +53,7 @@ func bareNode(t *testing.T) *Node {
 		t.Fatal(err)
 	}
 	cfg := DefaultConfig()
-	return &Node{cfg: cfg, chain: chain, cache: newStore(4, 1024*1024, time.Minute), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
+	return &Node{stats: runtimeStats{identity: testStatsIdentity(t)}, cfg: cfg, chain: chain, cache: newStore(4, 1024*1024, time.Minute), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
 }
 func addFakePeer(n *Node, receive bool, capacity int) *peerSession {
 	p := &peerSession{receiveTx: receive, queue: make(chan outbound, capacity), done: make(chan struct{})}

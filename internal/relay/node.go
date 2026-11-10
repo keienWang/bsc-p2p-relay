@@ -3,6 +3,7 @@ package relay
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
@@ -61,6 +62,7 @@ type peerSession struct {
 	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
+	stats         runtimeStats
 	submitMu      sync.Mutex
 	cfg           Config
 	chain         *chainView
@@ -101,11 +103,15 @@ func New(cfg Config) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	identity, err := newStatsIdentity(cryptorand.Reader)
+	if err != nil {
+		return nil, err
+	}
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		return nil, err
 	}
-	n := &Node{cfg: cfg, chain: chain, cache: newStore(cfg.CacheCount, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
+	n := &Node{stats: runtimeStats{identity: identity}, cfg: cfg, chain: chain, cache: newStore(cfg.CacheCount, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
 	var peers, boots []*enode.Node
 	for _, url := range cfg.Peers {
 		peer, err := enode.Parse(enode.ValidSchemes, url)
@@ -164,9 +170,16 @@ func (n *Node) Health() Health {
 
 // Submit reports bounded local queue admission, never peer acceptance/inclusion.
 func (n *Node) Submit(raw []byte) (Submission, error) {
+	result, err, outcome := n.submit(raw)
+	// A panic or unfinished call never reaches this normal-completion recorder.
+	n.stats.record(outcome)
+	return result, err
+}
+
+func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	tx, sender, err := validate(raw, n.chain.config.ChainID)
 	if err != nil {
-		return Submission{}, err
+		return Submission{}, err, submitRejectedValidation
 	}
 	result := Submission{Hash: tx.Hash(), Sender: sender, Stage: "queued"}
 	n.submitMu.Lock()
@@ -181,17 +194,21 @@ func (n *Node) Submit(raw []byte) (Submission, error) {
 		}
 	}
 	if !available {
-		return result, ErrNoPeers
+		return result, ErrNoPeers, submitRejectedNoPeers
 	}
 	fresh, err := n.cache.add(tx, time.Now())
 	if err != nil {
-		return result, err
+		outcome := submitOther
+		if errors.Is(err, ErrCacheFull) {
+			outcome = submitRejectedCacheFull
+		}
+		return result, err, outcome
 	}
 	result.Duplicate = !fresh
 	now := time.Now()
 	expires := n.cache.expiry(tx.Hash())
 	if expires.IsZero() || !now.Before(expires) {
-		return result, ErrAdmissionExpired
+		return result, ErrAdmissionExpired, submitRejectedAdmissionExpired
 	}
 	alreadyQueued := 0
 	eligible := 0
@@ -241,11 +258,14 @@ func (n *Node) Submit(raw []byte) (Submission, error) {
 			if fresh {
 				n.cache.remove(tx.Hash())
 			}
-			return result, ErrQueuesFull
+			return result, ErrQueuesFull, submitRejectedQueueUnavailable
 		}
 		result.Duplicate = true
 	}
-	return result, nil
+	if fresh {
+		return result, nil, submitAcceptedNew
+	}
+	return result, nil, submitAcceptedCached
 }
 
 func (n *Node) handshake(p *peerSession) error {

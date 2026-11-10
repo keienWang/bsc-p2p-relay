@@ -47,7 +47,7 @@ func loadNode(tb testing.TB, count, peers, queue int) *Node {
 	cfg := DefaultConfig()
 	cfg.CacheCount = count
 	cfg.CacheTTL = time.Hour
-	n := &Node{cfg: cfg, chain: chain, cache: newStore(count, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
+	n := &Node{stats: runtimeStats{identity: testStatsIdentity(tb)}, cfg: cfg, chain: chain, cache: newStore(count, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
 	for i := 0; i < peers; i++ {
 		n.peers[enode.ID{byte(i + 1)}] = &peerSession{receiveTx: true, queue: make(chan outbound, queue), done: make(chan struct{})}
 	}

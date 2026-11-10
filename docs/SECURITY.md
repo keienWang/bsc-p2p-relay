@@ -22,6 +22,14 @@ The relay cannot check account balances, current nonces, current execution rules
 
 Peer input and requests must be bounded, and queued data must remain bounded in both count and bytes. Monitor the process for disconnections, queue pressure, and resource use. Do not treat healthy metrics as consensus verification.
 
+The loopback [statistics endpoint](OBSERVABILITY.md) exposes only fixed aggregate
+Submit outcomes and HTTP concurrency refusals. Its random instance ID is public
+correlation metadata, not an authentication token or P2P identity. It takes no
+transaction slots or state locks; fixed O(1) metric work does not bound total HTTP
+resource use. Existing HTTP timeouts and local-access restrictions still apply.
+It adds no transaction/peer identity history, exporter, authentication or public
+listener, and it cannot prove delivery or consensus state.
+
 ## Scope restrictions
 
 Only replay-protected transaction types 0, 1, and 2 for chain ID 56 or 97, according to the selected network, are supported. Blob and set-code transactions are rejected. This restriction is an implementation scope decision, not a statement that those transaction types are universally invalid on BSC.

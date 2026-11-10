@@ -87,6 +87,19 @@ promise that accepted transactions cannot be lost requires a separately reviewed
 policy, persistence/acknowledgments and observable failure states. Do not hide
 expired/abandoned entries or redefine them as delivery success.
 
+## Runtime observation versus the test ledger
+
+The [version-1 statistics endpoint](OBSERVABILITY.md) counts normally completed
+Submit outcomes, including accepted new cache lifetimes versus cached retries,
+and separately counts HTTP concurrency refusals. It does not retain the test's
+per-hash ledger. After expiry or rollback the same hash can count as a new cache
+lifetime, and a fresh rejected insertion is not an accepted lifetime. These
+runtime counts do not replace offered-distinct-hash/retry accounting or provide
+an HTTP request denominator. They also do not measure queue expiry/abandonment,
+writer delivery or bytes. Preserve the test ledger's explicit units and only
+compare completed-call counts at quiescence. Historical result reports describe
+their original source; adding these metrics does not revalidate old measurements.
+
 ## Capacity budget, including what CacheBytes does not bound
 
 Let `T` be retention seconds, `lambda` the required sustained **new-hash admission**

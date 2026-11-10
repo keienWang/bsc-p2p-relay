@@ -94,6 +94,14 @@ Returns process health and relay metrics. Health does not establish network deli
 
 Reports whether peers are ready for relay transport. Readiness does not prove peer honesty, chain synchronization, or transaction acceptance.
 
+### GET /v1/stats
+
+Returns the [frozen version-1 statistics contract](docs/OBSERVABILITY.md): eight
+normally completed Submit outcomes and one separate HTTP concurrency-rejection
+counter, with an independent random Node instance ID. It is not a complete HTTP
+request count, globally unique transaction count or delivery/confirmation signal.
+Stats does not change health/readiness JSON or admission behavior.
+
 ## Resource bounds
 
 The transaction cache is bounded by 1,024 entries, 16 MiB, and a two-minute TTL. Each peer has a 64-item outbound queue. These are best-effort transport buffers, not durable delivery guarantees. Expiration, capacity limits, disconnects, and process exit can all prevent delivery.

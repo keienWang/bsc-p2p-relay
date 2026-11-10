@@ -61,6 +61,12 @@ func (n *Node) Handler() http.Handler {
 				status = 503
 			}
 			jsonResponse(w, status, health)
+		case "/v1/stats":
+			if r.Method != http.MethodGet {
+				apiError(w, 405, "GET required")
+				return
+			}
+			jsonResponse(w, 200, n.Stats())
 		case "/v1/transactions":
 			if r.Method != http.MethodPost {
 				apiError(w, 405, "POST required")
@@ -74,6 +80,7 @@ func (n *Node) Handler() http.Handler {
 			case slots <- struct{}{}:
 				defer func() { <-slots }()
 			default:
+				n.stats.concurrencyRejected.Add(1)
 				apiError(w, 429, "too many concurrent requests")
 				return
 			}

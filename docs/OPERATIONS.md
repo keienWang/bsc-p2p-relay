@@ -5,7 +5,7 @@ guide for the Stage 1, memory-only signed-transaction relay. It does not authori
 deployment, public-network testing, or real transaction submission. See the
 [production gates](PRODUCTION_READINESS.md) for requirements still open.
 
-The commands and contracts below were checked against local source
+The pre-statistics commands and contracts below were checked against local source
 `c4e10ac253b9ba9e014091e169453ce11480b778`, whose tracked content matches published
 commit [74b47eb3cebaa2a4a2461926dfa6410e4b23b78b](https://github.com/keienWang/bsc-p2p-relay/commit/74b47eb3cebaa2a4a2461926dfa6410e4b23b78b)
 (tree `513b9edf6531754714d815057e88676d7e6f71c6`). This source reference is not a
@@ -13,7 +13,10 @@ hosted-CI or release-readiness claim. Resolve the eventual release commit and it
 own evidence before use. Runtime sources are
 [CLI](../cmd/bsc-relay/main.go), [HTTP](../internal/relay/http.go),
 [node/queues](../internal/relay/node.go), [cache/validation](../internal/relay/store.go)
-and [network selection](../internal/relay/network.go).
+and [network selection](../internal/relay/network.go). The separately versioned
+statistics endpoint is newer than that operator-only source reference; see its
+[current contract](OBSERVABILITY.md) and final-source verification evidence before
+use. This guide does not certify that a new binary has passed its release gates.
 
 ## Before starting
 
@@ -262,6 +265,24 @@ snapshot; ordinary churn can change them between observations. Collect bounded,
 timestamped samples and caller-side status/error/latency counts, with failures
 and uncertain outcomes retained. Do not infer exact per-transaction history from
 aggregate counter differences.
+
+`GET /v1/stats` separately exposes eight normally completed Submit outcomes and
+HTTP's pre-Submit concurrency-rejection count. It preserves the health object
+above and is 200 even without peers. Use the same guarded local listener:
+
+```sh
+curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/v1/stats
+```
+
+See the [frozen schema and collection contract](OBSERVABILITY.md). Rejected cache,
+queue-unavailable and admission-expired outcomes are distinct from the HTTP
+concurrency refusal; count/byte cache failures remain combined. New cache
+lifetimes are not globally distinct hash offers. Other early HTTP failures do
+not call Submit, so these counters do not provide a complete HTTP denominator.
+Use same-endpoint, same-instance serial scrapes and caller monotonic time for
+approximate rates. Treat failed/invalid/unsupported observations as unavailable,
+not zero or newly refreshed stale values. A 404 from an older binary is absence
+of this endpoint, not evidence of zero traffic. No SLO is certified here.
 
 For a separately verified relay PID, Linux/Unix tools can inspect actual process
 resources without adding a remote endpoint. For example, after assigning `PID`

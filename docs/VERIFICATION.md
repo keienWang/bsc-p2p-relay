@@ -53,3 +53,27 @@ The local validation binary, built with `-trimpath -buildvcs=false`, has SHA-256
 `go tool nm` was searched for `github.com/pion/dtls/v2.Client`, `.Dial`, `(*Conn).handshake`, `(*Conn).Read`, `(*Conn).Write`, and `github.com/pion/stun/v2.DialURI`; no matching symbols appeared. This supports the source-level observation that the examined binary does not contain those DTLS session entry points. It is not proof of absence of every exploitable path, does not make the dependency scan pass, and is not a substitute for review of a final distributed binary.
 
 The binary is a local QA artifact, not a published release. Rebuild and revalidate the exact release commit before distributing it.
+
+
+## Submission statistics verification, 2026-11-10
+
+The [full submission-statistics verification record](OBSERVABILITY_VERIFICATION_2026-11-10.md)
+binds frozen implementation/regression source `0c8bdd864adcdd65fa74cdfd28922878eec3177c`
+and the later process-smoke-only source `7b56311f6ae4b29e1915afe5399aab1d552cda3e`
+to default, actual officialpool and canonical-isolation checks, four successful
+scanner scopes, a new ten-second fuzz run, and the real binary stats smoke.
+The record preserves the original fuzz outer-timeout, offline scanner-launch
+failure and fixture-output preparation failure alongside explicitly authorized
+corrections. It does not call those initial attempts successful, overwrite earlier
+measurements, claim hosted CI, or close production/BLS/verified-head gates.
+
+
+### Stats smoke framing follow-up
+
+The [framing-fault follow-up](OBSERVABILITY_VERIFICATION_2026-11-10.md#smoke-framing-fault-follow-up)
+records the test-only correction at `d22aacc03f2e07bf74c9b6fe6fd92d4d2ee803c6`:
+explicit bounded Content-Length agreement and conservative transfer-coding
+rejection, real in-memory HTTPResponse negative fixtures, 43 passing Python tests
+and one passing actual-binary smoke. The earlier binary observations remain
+valid, but did not exercise this false-green framing fault. Runtime sources and
+prior full-suite/failed-attempt evidence are unchanged.
