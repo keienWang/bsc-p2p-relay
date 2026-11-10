@@ -104,6 +104,12 @@ See [production acceptance gates](docs/PRODUCTION_READINESS.md) before consideri
 
 Near-capacity in-memory load tests and measured limitations are recorded in [performance checks](docs/PERFORMANCE.md).
 
+[Unique-hash capacity and retention](docs/UNIQUE_CAPACITY.md) separates repeated
+HTTP requests from new transaction intake, documents backpressure semantics, and
+provides short local proofs plus an opt-in default-TTL experiment. The default
+count/retention budget alone limits ideal long-run new cache lifetimes to about
+8.53/s, regardless of how fast previously cached hashes can be resubmitted.
+
 ## Next stage
 
 Stage 2 would require independently anchored ancestry and Parlia consensus verification, plus inclusion/receipt evidence and reorganization handling. Merely copying peer heads or requesting receipts is not independent verification. This is substantial separate work, not an enabled feature or a promised delivery date.

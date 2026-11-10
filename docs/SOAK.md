@@ -65,6 +65,13 @@ and small quantile check. The fault-injection cases are not performance samples.
 
 ## Workload and safety boundary
 
+**The approximately 800/s pace below is repeated HTTP requests over prefilled
+hashes, not 800 newly signed transaction hashes/s.** Successful writes retain the
+cache until the original TTL, so default count retention alone bounds ideal
+long-run new cache lifetimes to 1,024 / 120s, about 8.53/s. Startup bursts and expiry
+boundaries can raise short finite-window averages. See the separate
+[unique-hash capacity proof and resource budget](UNIQUE_CAPACITY.md).
+
 - Only an HTTP server on literal `127.0.0.1:0` opens a listener. No P2P server is
   started, no discovery occurs, and no external RPC or public peer is contacted.
 - Transactions use the existing predictable, test-only key and zero value. They

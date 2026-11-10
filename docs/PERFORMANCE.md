@@ -17,6 +17,12 @@ An additional exactly-full-capacity fixture (1,024 hashes × 20 peers) measured 
 
 Do not turn these figures into a claim of public-network transactions per second. No remote node acceptance or propagation latency is measured. Repeat on target hardware with transport enabled, varied cache occupancy, slow peers and realistic concurrent requests.
 
+Successful writes do not free the cache, and the fresh-submit benchmark explicitly
+recycles entries. Its operation rate is therefore not sustained new-hash capacity.
+The separate [unique-hash capacity tests and retention budget](UNIQUE_CAPACITY.md)
+exercise real count/byte rejection, deadline recovery, and first-offer versus retry
+accounting without recycling live cache entries.
+
 ## Regression/load coverage
 
 The load suite exercises full and partial queues, byte/count cache bounds, replacement peers, repeated submissions, simultaneous Health/pruning/submission, expired entries, exact target expiry before the next sweep, forced reclamation at capacity, and idle metadata cleanup. It asserts active deduplication, queue deadlines, cache byte accounting and hard map bounds.
