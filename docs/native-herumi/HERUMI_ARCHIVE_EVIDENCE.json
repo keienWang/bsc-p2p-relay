@@ -1,0 +1,816 @@
+{
+  "schema_version": 1,
+  "title": "Targeted Herumi archive source and license evidence",
+  "scope": "Engineering evidence limited to the selected linux/amd64 Herumi archive, its recorded source associations and selected notices, with static observations of one QA executable. Not a complete native inventory, SBOM, compliance package, corresponding-source bundle, security audit or reproducible-build attestation.",
+  "source_baseline_url": "https://github.com/keienWang/bsc-p2p-relay/commit/4980dbfd4af009674c3acf35402dc436c95a2284",
+  "module_identity": {
+    "path": "github.com/herumi/bls-eth-go-binary",
+    "version": "v1.31.0",
+    "origin_repository_url": "https://github.com/herumi/bls-eth-go-binary",
+    "origin_commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+    "go_sum_h1": "h1:9eeW3EA4epCb7FIHt2luENpAW69MvKGL5jieHlBiP+w=",
+    "module_zip_h1_recomputed_equal": true,
+    "module_zip_regular_file_count": 50,
+    "parent_snapshot_regular_file_count": 50,
+    "all_zip_files_equal_cached_files": true,
+    "all_parent_snapshot_regular_file_hashes_and_sizes_match": true,
+    "gitlink_contents_in_module_zip": false
+  },
+  "archive": {
+    "repository": "herumi/bls-eth-go-binary",
+    "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+    "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+    "path": "bls/lib/linux/amd64/libbls384_256.a",
+    "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/lib/linux/amd64/libbls384_256.a",
+    "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/9168b622e2d6972855ed00b3fce7578fea40cb0c",
+    "git_blob_sha1": "9168b622e2d6972855ed00b3fce7578fea40cb0c",
+    "size_bytes": 916592,
+    "body_inspected": true,
+    "sha256": "498c90b7e3f3cf7a819b2bfd0b619162d8c38e1a29bf8d924821eaba616c9873",
+    "local_content_matches_recorded_blob": true,
+    "archive_members": [
+      "bls_c384_256.o",
+      "fp.o",
+      "static_code.o",
+      "bint64.o",
+      "base64.o"
+    ]
+  },
+  "recorded_gitlinks": [
+    {
+      "parent_repository": "herumi/bls-eth-go-binary",
+      "parent_commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "src/bls",
+      "mode": "160000",
+      "child_repository": "herumi/bls",
+      "child_commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "child_commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9"
+    },
+    {
+      "parent_repository": "herumi/bls",
+      "parent_commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "mcl",
+      "mode": "160000",
+      "child_repository": "herumi/mcl",
+      "child_commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "child_commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f"
+    }
+  ],
+  "source_objects": [
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": ".gitmodules",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/.gitmodules",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/70bce1a792120a023803bd43aa6e8887fc85e9e9",
+      "git_blob_sha1": "70bce1a792120a023803bd43aa6e8887fc85e9e9",
+      "size_bytes": 75,
+      "body_inspected": true,
+      "body_sha256": "4a8aaf5f24d2df1f4ed039ff66abf9284208d1d3d0bcf21c7c4c15ff9143bbb4",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "ETH.cfg",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/ETH.cfg",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/ab1a3c249b77dcc8999b25418bb0a21e909752a7",
+      "git_blob_sha1": "ab1a3c249b77dcc8999b25418bb0a21e909752a7",
+      "size_bytes": 21,
+      "body_inspected": true,
+      "body_sha256": "3ca9a0e00da447ee24c9ab3a9662aa27dbad6ff906b5ee2f28368cff87673f8f",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "Makefile",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/Makefile",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/5fceb5416456c1b1ff1d9eee3a0cab51d9696279",
+      "git_blob_sha1": "5fceb5416456c1b1ff1d9eee3a0cab51d9696279",
+      "size_bytes": 1675,
+      "body_inspected": true,
+      "body_sha256": "58f07c0a5e49f2428b5cd49fe8660b2e890f9b7d6073503cbf45a8589f8cda93",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": ".github/workflows/release.yml",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/.github/workflows/release.yml",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/7ace9cc135cac7f16f8359f60a3169f7bcd53d3c",
+      "git_blob_sha1": "7ace9cc135cac7f16f8359f60a3169f7bcd53d3c",
+      "size_bytes": 7789,
+      "body_inspected": true,
+      "body_sha256": "71837651521dffb0cb4124c49eef9c19cac9ed425cfc7f7942cb266cdaa7eb6c",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "bls/link.go",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/link.go",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/0e61664b8598c0d9217c6d43ffca8639895d7e73",
+      "git_blob_sha1": "0e61664b8598c0d9217c6d43ffca8639895d7e73",
+      "size_bytes": 825,
+      "body_inspected": true,
+      "body_sha256": "8d6a649f28d05ac09d1ef6f8465e133bdec57c43f4811773a61c05f63faa3e69",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "readme.md",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/readme.md",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/56bf824329bbb5691a48cda8a8955e5caeb45651",
+      "git_blob_sha1": "56bf824329bbb5691a48cda8a8955e5caeb45651",
+      "size_bytes": 4711,
+      "body_inspected": true,
+      "body_sha256": "4ffd11eb3a206dce93bb18f3e6e05ac479f3df6120dc95d630e667066f727b82",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "bls/include/bls/bls.h",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/include/bls/bls.h",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/e026e65b42b53222e027c4ff6f9d136cdd09a506",
+      "git_blob_sha1": "e026e65b42b53222e027c4ff6f9d136cdd09a506",
+      "size_bytes": 15991,
+      "body_inspected": true,
+      "body_sha256": "1b54346b292c46d232966caf1b9a06d18e0828e3698ebc5b2583a244e937885e",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls-eth-go-binary",
+      "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+      "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+      "path": "bls/include/mcl/bn.h",
+      "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/include/mcl/bn.h",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/ba41d8dbd3030eb7b5324d035fa133835eec8762",
+      "git_blob_sha1": "ba41d8dbd3030eb7b5324d035fa133835eec8762",
+      "size_bytes": 20949,
+      "body_inspected": true,
+      "body_sha256": "0c97a23258c97d7a75808108ce4592eb7963488b758e5fbe8f7637b32c14fc7b",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": ".gitmodules",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/.gitmodules",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/8063ac8be87dfffaf8dbf17d2f3a067385373756",
+      "git_blob_sha1": "8063ac8be87dfffaf8dbf17d2f3a067385373756",
+      "size_bytes": 67,
+      "body_inspected": true,
+      "body_sha256": "f75154f63576b2193b6fe217ca7c0720f0cfac8999e254c2d0ab77e07a9647dc",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "readme.md",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/readme.md",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/c98cbbea4a8e17e84e81db48ba704b0a23aaacb5",
+      "git_blob_sha1": "c98cbbea4a8e17e84e81db48ba704b0a23aaacb5",
+      "size_bytes": 10239,
+      "body_inspected": true,
+      "body_sha256": "63a07ae9230c314caa230abb54f6cbc32da8ed6c58aa8db43a4e85ada77e5e0f",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "Makefile.onelib",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/Makefile.onelib",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/8a5fd2a17d218dd6709e177b6325fb8aac60590b",
+      "git_blob_sha1": "8a5fd2a17d218dd6709e177b6325fb8aac60590b",
+      "size_bytes": 6904,
+      "body_inspected": true,
+      "body_sha256": "8742ff61af46ca57f360a27fe51e0a8b65c2876e2e9ff53cc37f6b885608b052",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "readme.md",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/readme.md",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/e3d76c83f3acc9e78cbd1ff4dfc5fa1dca6b9e41",
+      "git_blob_sha1": "e3d76c83f3acc9e78cbd1ff4dfc5fa1dca6b9e41",
+      "size_bytes": 16244,
+      "body_inspected": true,
+      "body_sha256": "4ac53b65240e55254e22ebdaf0fa51e5a41dcb9340829990e67b1989cbc5ce7b",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "COPYRIGHT",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/COPYRIGHT",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/b98cac62f3c24ede8c26acc5dadbba43b81a7532",
+      "git_blob_sha1": "b98cac62f3c24ede8c26acc5dadbba43b81a7532",
+      "size_bytes": 1501,
+      "body_inspected": true,
+      "body_sha256": "5d1e7a7fc15e2249a7744ab54a37c93b6520d1be68d6f23430fd405197c7c8ab",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "common.mk",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/common.mk",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/4d167bfb8ea7006f749d4b08229f169be20a66b1",
+      "git_blob_sha1": "4d167bfb8ea7006f749d4b08229f169be20a66b1",
+      "size_bytes": 3225,
+      "body_inspected": true,
+      "body_sha256": "87c2f1a3c02bdc181237a3853a03d442dfa3c4619cefb04f03aa8c7e1ecb9253",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "Makefile",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/Makefile",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/8d01d445ce805e13ec4f0c84b7af04679c643f01",
+      "git_blob_sha1": "8d01d445ce805e13ec4f0c84b7af04679c643f01",
+      "size_bytes": 18707,
+      "body_inspected": true,
+      "body_sha256": "5a5346f82f3be8996ea1d1a67de25592fda23c2cec3112249c10a2fdaa31b44d",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/xbyak/xbyak.h",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/xbyak/xbyak.h",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/358ebd30ca0fee04c7d8be5ff07c29cb764dc83e",
+      "git_blob_sha1": "358ebd30ca0fee04c7d8be5ff07c29cb764dc83e",
+      "size_bytes": 98713,
+      "body_inspected": true,
+      "body_sha256": "2d800a52a2c9019d9d7263a576bedd12901a713abf989f93a63643f8f9231556",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "include/cybozu/sha2.hpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/include/cybozu/sha2.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/0c40b243a53c183bcf860a3517f20a22c7978b8c",
+      "git_blob_sha1": "0c40b243a53c183bcf860a3517f20a22c7978b8c",
+      "size_bytes": 16041,
+      "body_inspected": true,
+      "body_sha256": "cae04cdc04fde81906d92615fd043c4526f9a272baef080cd2902c40173907b9",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "src/bls_c384_256.cpp",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c384_256.cpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+      "git_blob_sha1": "3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+      "size_bytes": 85,
+      "body_inspected": true,
+      "body_sha256": "300a737140b02f91c5254043990c646f910ffd5f5d7d62a53eddcea335fb9bb8",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "include/bls/bls.hpp",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/include/bls/bls.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/d488f5a543dbca324e42f8ed077299b60a6b0298",
+      "git_blob_sha1": "d488f5a543dbca324e42f8ed077299b60a6b0298",
+      "size_bytes": 15479,
+      "body_inspected": true,
+      "body_sha256": "341bf6947422f2f767f1475d5ca8a3b018942577b8dccdedfe615a5b4e66f162",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/fp.cpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/fp.cpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/17ec6f82598ae393a54928186ad0492c0e1a7b55",
+      "git_blob_sha1": "17ec6f82598ae393a54928186ad0492c0e1a7b55",
+      "size_bytes": 14938,
+      "body_inspected": true,
+      "body_sha256": "3f0837c6439a0bebd76876663ad67b4ad9aed23cc795c27ff6fd29e8a57c0f50",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/xbyak/xbyak_util.h",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/xbyak/xbyak_util.h",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+      "git_blob_sha1": "12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+      "size_bytes": 30074,
+      "body_inspected": true,
+      "body_sha256": "c4254bd73cfab457e8e7f5a6d284e1d85f4024aaa20e2351fbe8be390d33d977",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "src/bls_c_impl.hpp",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c_impl.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+      "git_blob_sha1": "0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+      "size_bytes": 28850,
+      "body_inspected": true,
+      "body_sha256": "25787aaa5c2260d695809975e224732a6980bf3a74037c856924888be8f075bc",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/bls",
+      "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+      "path": "include/bls/bls.h",
+      "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/include/bls/bls.h",
+      "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/e026e65b42b53222e027c4ff6f9d136cdd09a506",
+      "git_blob_sha1": "e026e65b42b53222e027c4ff6f9d136cdd09a506",
+      "size_bytes": 15991,
+      "body_inspected": true,
+      "body_sha256": "1b54346b292c46d232966caf1b9a06d18e0828e3698ebc5b2583a244e937885e",
+      "body_matches_recorded_blob": true
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "include/mcl/impl/bn_c_impl.hpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/include/mcl/impl/bn_c_impl.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/00f49c5f1c3c226b4f85c038cc58a349513cba05",
+      "git_blob_sha1": "00f49c5f1c3c226b4f85c038cc58a349513cba05",
+      "size_bytes": 21053,
+      "body_inspected": false
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/fp_static_code.hpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/fp_static_code.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/294a370f631688b11033a91aed6f26c15ceec032",
+      "git_blob_sha1": "294a370f631688b11033a91aed6f26c15ceec032",
+      "size_bytes": 3456,
+      "body_inspected": false
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/fp_generator.hpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/fp_generator.hpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/9c9fb0b9f981d83c77cd2f6b584af919e9a8a1dc",
+      "git_blob_sha1": "9c9fb0b9f981d83c77cd2f6b584af919e9a8a1dc",
+      "size_bytes": 87026,
+      "body_inspected": false
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/dump_code.cpp",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/dump_code.cpp",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/ba5315f163fc5724ad14539ae93b592cbb19529d",
+      "git_blob_sha1": "ba5315f163fc5724ad14539ae93b592cbb19529d",
+      "size_bytes": 108,
+      "body_inspected": false
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/asm/bint-x64-amd64.S",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/asm/bint-x64-amd64.S",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/c03a90e8e1d14778d1c66a0a222a7c4b74197d56",
+      "git_blob_sha1": "c03a90e8e1d14778d1c66a0a222a7c4b74197d56",
+      "size_bytes": 84175,
+      "body_inspected": false
+    },
+    {
+      "repository": "herumi/mcl",
+      "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+      "path": "src/asm/x86-64.S",
+      "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/asm/x86-64.S",
+      "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/b91fa78bb667bfea0c617284117c4eaaf8920ef9",
+      "git_blob_sha1": "b91fa78bb667bfea0c617284117c4eaaf8920ef9",
+      "size_bytes": 193695,
+      "body_inspected": false
+    }
+  ],
+  "license_evidence": [
+    {
+      "component": "Herumi Go wrapper/archive distribution snapshot",
+      "evidence_level": "file_header_declaration_observed",
+      "declaration": "modified new BSD license; BSD-3-Clause URL",
+      "sources": [
+        {
+          "repository": "herumi/bls-eth-go-binary",
+          "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+          "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+          "path": "bls/include/bls/bls.h",
+          "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/include/bls/bls.h",
+          "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/e026e65b42b53222e027c4ff6f9d136cdd09a506",
+          "git_blob_sha1": "e026e65b42b53222e027c4ff6f9d136cdd09a506",
+          "size_bytes": 15991,
+          "body_inspected": true,
+          "body_sha256": "1b54346b292c46d232966caf1b9a06d18e0828e3698ebc5b2583a244e937885e",
+          "body_matches_recorded_blob": true
+        },
+        {
+          "repository": "herumi/bls-eth-go-binary",
+          "commit": "ecb2d6d6d613faa5de749699432721b8342a1798",
+          "commit_url": "https://github.com/herumi/bls-eth-go-binary/commit/ecb2d6d6d613faa5de749699432721b8342a1798",
+          "path": "bls/include/mcl/bn.h",
+          "source_url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/include/mcl/bn.h",
+          "git_blob_url": "https://api.github.com/repos/herumi/bls-eth-go-binary/git/blobs/ba41d8dbd3030eb7b5324d035fa133835eec8762",
+          "git_blob_sha1": "ba41d8dbd3030eb7b5324d035fa133835eec8762",
+          "size_bytes": 20949,
+          "body_inspected": true,
+          "body_sha256": "0c97a23258c97d7a75808108ce4592eb7963488b758e5fbe8f7637b32c14fc7b",
+          "body_matches_recorded_blob": true
+        }
+      ],
+      "standalone_license_or_copyright_file_in_snapshot": false
+    },
+    {
+      "component": "BLS C++ wrapper",
+      "evidence_level": "file_header_declaration_observed",
+      "declaration": "modified new BSD license; BSD-3-Clause URL",
+      "author_line": "MITSUNARI Shigeo(@herumi)",
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "include/bls/bls.hpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/include/bls/bls.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/d488f5a543dbca324e42f8ed077299b60a6b0298",
+        "git_blob_sha1": "d488f5a543dbca324e42f8ed077299b60a6b0298",
+        "size_bytes": 15479,
+        "body_inspected": true,
+        "body_sha256": "341bf6947422f2f767f1475d5ca8a3b018942577b8dccdedfe615a5b4e66f162",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "This wrapper header is not established as the implementation included by bls_c384_256.cpp."
+    },
+    {
+      "component": "BLS repository",
+      "evidence_level": "repository_declaration_observed",
+      "declaration": "modified new BSD License; BSD-3-Clause URL",
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "readme.md",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/readme.md",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/c98cbbea4a8e17e84e81db48ba704b0a23aaacb5",
+        "git_blob_sha1": "c98cbbea4a8e17e84e81db48ba704b0a23aaacb5",
+        "size_bytes": 10239,
+        "body_inspected": true,
+        "body_sha256": "63a07ae9230c314caa230abb54f6cbc32da8ed6c58aa8db43a4e85ada77e5e0f",
+        "body_matches_recorded_blob": true
+      },
+      "standalone_license_or_copyright_file_in_snapshot": false
+    },
+    {
+      "component": "MCL repository",
+      "evidence_level": "full_copyright_conditions_disclaimer_observed",
+      "copyright_line": "Copyright (c) 2015 MITSUNARI Shigeo",
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "COPYRIGHT",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/COPYRIGHT",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/b98cac62f3c24ede8c26acc5dadbba43b81a7532",
+        "git_blob_sha1": "b98cac62f3c24ede8c26acc5dadbba43b81a7532",
+        "size_bytes": 1501,
+        "body_inspected": true,
+        "body_sha256": "5d1e7a7fc15e2249a7744ab54a37c93b6520d1be68d6f23430fd405197c7c8ab",
+        "body_matches_recorded_blob": true
+      },
+      "repository_license_declaration": "modified new BSD License; BSD-3-Clause URL",
+      "declaration_source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "readme.md",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/readme.md",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/e3d76c83f3acc9e78cbd1ff4dfc5fa1dca6b9e41",
+        "git_blob_sha1": "e3d76c83f3acc9e78cbd1ff4dfc5fa1dca6b9e41",
+        "size_bytes": 16244,
+        "body_inspected": true,
+        "body_sha256": "4ac53b65240e55254e22ebdaf0fa51e5a41dcb9340829990e67b1989cbc5ce7b",
+        "body_matches_recorded_blob": true
+      }
+    },
+    {
+      "component": "Vendored Xbyak main header",
+      "evidence_level": "file_header_declaration_observed",
+      "declaration": "modified new BSD license; BSD-3-Clause URL",
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "src/xbyak/xbyak.h",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/xbyak/xbyak.h",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/358ebd30ca0fee04c7d8be5ff07c29cb764dc83e",
+        "git_blob_sha1": "358ebd30ca0fee04c7d8be5ff07c29cb764dc83e",
+        "size_bytes": 98713,
+        "body_inspected": true,
+        "body_sha256": "2d800a52a2c9019d9d7263a576bedd12901a713abf989f93a63643f8f9231556",
+        "body_matches_recorded_blob": true
+      },
+      "independent_upstream_commit_established": false
+    },
+    {
+      "component": "Vendored cybozu SHA2 header",
+      "evidence_level": "file_header_declaration_observed",
+      "declaration": "modified new BSD license; BSD-3-Clause URL",
+      "author_line": "MITSUNARI Shigeo(@herumi)",
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "include/cybozu/sha2.hpp",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/include/cybozu/sha2.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/0c40b243a53c183bcf860a3517f20a22c7978b8c",
+        "git_blob_sha1": "0c40b243a53c183bcf860a3517f20a22c7978b8c",
+        "size_bytes": 16041,
+        "body_inspected": true,
+        "body_sha256": "cae04cdc04fde81906d92615fd043c4526f9a272baef080cd2902c40173907b9",
+        "body_matches_recorded_blob": true
+      },
+      "independent_upstream_commit_established": false
+    },
+    {
+      "component": "BLS direct C interface include",
+      "evidence_level": "file_header_declaration_observed",
+      "declaration": "modified new BSD license; BSD-3-Clause URL",
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "include/bls/bls.h",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/include/bls/bls.h",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/e026e65b42b53222e027c4ff6f9d136cdd09a506",
+        "git_blob_sha1": "e026e65b42b53222e027c4ff6f9d136cdd09a506",
+        "size_bytes": 15991,
+        "body_inspected": true,
+        "body_sha256": "1b54346b292c46d232966caf1b9a06d18e0828e3698ebc5b2583a244e937885e",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "This exact header blob is shared with the Go module snapshot; the notice is not a full implementation/license audit."
+    },
+    {
+      "component": "herumi/bls:src/bls_c384_256.cpp",
+      "evidence_level": "no_file_local_license_or_copyright_notice_observed",
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "src/bls_c384_256.cpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c384_256.cpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+        "git_blob_sha1": "3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+        "size_bytes": 85,
+        "body_inspected": true,
+        "body_sha256": "300a737140b02f91c5254043990c646f910ffd5f5d7d62a53eddcea335fb9bb8",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "Repository-level declarations and notices are recorded separately. This observation is not a finding that the file is unlicensed or noncompliant."
+    },
+    {
+      "component": "herumi/bls:src/bls_c_impl.hpp",
+      "evidence_level": "no_file_local_license_or_copyright_notice_observed",
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "src/bls_c_impl.hpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c_impl.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "git_blob_sha1": "0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "size_bytes": 28850,
+        "body_inspected": true,
+        "body_sha256": "25787aaa5c2260d695809975e224732a6980bf3a74037c856924888be8f075bc",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "Repository-level declarations and notices are recorded separately. This observation is not a finding that the file is unlicensed or noncompliant."
+    },
+    {
+      "component": "herumi/mcl:src/fp.cpp",
+      "evidence_level": "no_file_local_license_or_copyright_notice_observed",
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "src/fp.cpp",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/fp.cpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/17ec6f82598ae393a54928186ad0492c0e1a7b55",
+        "git_blob_sha1": "17ec6f82598ae393a54928186ad0492c0e1a7b55",
+        "size_bytes": 14938,
+        "body_inspected": true,
+        "body_sha256": "3f0837c6439a0bebd76876663ad67b4ad9aed23cc795c27ff6fd29e8a57c0f50",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "Repository-level declarations and notices are recorded separately. This observation is not a finding that the file is unlicensed or noncompliant."
+    },
+    {
+      "component": "herumi/mcl:src/xbyak/xbyak_util.h",
+      "evidence_level": "no_file_local_license_or_copyright_notice_observed",
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "src/xbyak/xbyak_util.h",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/xbyak/xbyak_util.h",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+        "git_blob_sha1": "12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+        "size_bytes": 30074,
+        "body_inspected": true,
+        "body_sha256": "c4254bd73cfab457e8e7f5a6d284e1d85f4024aaa20e2351fbe8be390d33d977",
+        "body_matches_recorded_blob": true
+      },
+      "scope_limit": "Repository-level declarations and notices are recorded separately. This observation is not a finding that the file is unlicensed or noncompliant."
+    }
+  ],
+  "verified_source_relationships": [
+    {
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "src/bls_c384_256.cpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c384_256.cpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+        "git_blob_sha1": "3dcb3e7d7e2c0fdfba997531f1a73d3bcc92dca4",
+        "size_bytes": 85,
+        "body_inspected": true,
+        "body_sha256": "300a737140b02f91c5254043990c646f910ffd5f5d7d62a53eddcea335fb9bb8",
+        "body_matches_recorded_blob": true
+      },
+      "observation": "The 85-byte translation unit defines MCLBN_FP_UNIT_SIZE=6 and MCLBN_FR_UNIT_SIZE=4, then includes bls_c_impl.hpp.",
+      "included_implementation": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "src/bls_c_impl.hpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c_impl.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "git_blob_sha1": "0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "size_bytes": 28850,
+        "body_inspected": true,
+        "body_sha256": "25787aaa5c2260d695809975e224732a6980bf3a74037c856924888be8f075bc",
+        "body_matches_recorded_blob": true
+      }
+    },
+    {
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "src/bls_c_impl.hpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/src/bls_c_impl.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "git_blob_sha1": "0da666dfbeda933dcdfbe7158fcf61bf925ccffa",
+        "size_bytes": 28850,
+        "body_inspected": true,
+        "body_sha256": "25787aaa5c2260d695809975e224732a6980bf3a74037c856924888be8f075bc",
+        "body_matches_recorded_blob": true
+      },
+      "observation": "Directly includes bls/bls.h, mcl/impl/bn_c_impl.hpp, cybozu/sha2.hpp and cybozu/endian.hpp; thread and qcoeff-bn254.hpp includes are conditional. No file-local license/copyright notice was observed. Inspection was limited to identity, notices and include relationships, not cryptographic correctness.",
+      "uninspected_transitive_implementation": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "include/mcl/impl/bn_c_impl.hpp",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/include/mcl/impl/bn_c_impl.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/00f49c5f1c3c226b4f85c038cc58a349513cba05",
+        "git_blob_sha1": "00f49c5f1c3c226b4f85c038cc58a349513cba05",
+        "size_bytes": 21053,
+        "body_inspected": false
+      }
+    },
+    {
+      "source": {
+        "repository": "herumi/bls",
+        "commit": "f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "commit_url": "https://github.com/herumi/bls/commit/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9",
+        "path": "include/bls/bls.hpp",
+        "source_url": "https://github.com/herumi/bls/blob/f1cfa24cc64cadf79d7cbcf00a745f7a886f91d9/include/bls/bls.hpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/bls/git/blobs/d488f5a543dbca324e42f8ed077299b60a6b0298",
+        "git_blob_sha1": "d488f5a543dbca324e42f8ed077299b60a6b0298",
+        "size_bytes": 15479,
+        "body_inspected": true,
+        "body_sha256": "341bf6947422f2f767f1475d5ca8a3b018942577b8dccdedfe615a5b4e66f162",
+        "body_matches_recorded_blob": true
+      },
+      "observation": "The C++ wrapper includes bls/bls.h and standard headers. It is not the bls_c_impl.hpp body."
+    },
+    {
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "src/fp.cpp",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/fp.cpp",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/17ec6f82598ae393a54928186ad0492c0e1a7b55",
+        "git_blob_sha1": "17ec6f82598ae393a54928186ad0492c0e1a7b55",
+        "size_bytes": 14938,
+        "body_inspected": true,
+        "body_sha256": "3f0837c6439a0bebd76876663ad67b4ad9aed23cc795c27ff6fd29e8a57c0f50",
+        "body_matches_recorded_blob": true
+      },
+      "observation": "Directly includes cybozu/sha2.hpp. In its enabled x64/static-code helper section it includes xbyak/xbyak_util.h and defines Xbyak::util::Cpu g_cpu. When MCL_USE_XBYAK is not defined it sets XBYAK_ONLY_CLASS_CPU. MCL_STATIC_CODE and MCL_USE_XBYAK separately guard fp_static_code.hpp and fp_generator.hpp."
+    },
+    {
+      "source": {
+        "repository": "herumi/mcl",
+        "commit": "c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "commit_url": "https://github.com/herumi/mcl/commit/c44f016ce24e31260522f2dca4b424fa5f1ab35f",
+        "path": "src/xbyak/xbyak_util.h",
+        "source_url": "https://github.com/herumi/mcl/blob/c44f016ce24e31260522f2dca4b424fa5f1ab35f/src/xbyak/xbyak_util.h",
+        "git_blob_url": "https://api.github.com/repos/herumi/mcl/git/blobs/12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+        "git_blob_sha1": "12c0068ab3ddb03103283e82c6ecbf9032674e3e",
+        "size_bytes": 30074,
+        "body_inspected": true,
+        "body_sha256": "c4254bd73cfab457e8e7f5a6d284e1d85f4024aaa20e2351fbe8be390d33d977",
+        "body_matches_recorded_blob": true
+      },
+      "observation": "The XBYAK_ONLY_CLASS_CPU branch includes standard headers and does not include xbyak.h. The alternative branch includes xbyak.h."
+    }
+  ],
+  "inspected_binary_observations": {
+    "sha256": "63db65d60fa5f6728f01854053c056c402ea240b453f16d55538f1e9e8366491",
+    "target": "linux/amd64",
+    "go_version": "go1.26.10",
+    "cgo_enabled": true,
+    "elf_type": "ET_EXEC",
+    "gnu_stack_flags": "RW",
+    "writable_executable_load_segment_observed": false,
+    "gnu_relro_present": true,
+    "bind_now_flag_present": false,
+    "dynamic_needed_libraries": [
+      "libc.so.6"
+    ],
+    "retained_component_symbols": [
+      "Xbyak::util::Cpu::Cpu()",
+      "Xbyak::util::Cpu::setCacheHierarchy()",
+      "cybozu::Sha256::round(unsigned char const*)",
+      "cybozu::Sha512::round(unsigned char const*)"
+    ],
+    "runtime_mapping_observation_performed": false
+  },
+  "archive_descriptive_compiler_comments": [
+    {
+      "member": "bls_c384_256.o",
+      "comment": "Ubuntu clang version 14.0.0-1ubuntu1"
+    },
+    {
+      "member": "fp.o",
+      "comment": "Ubuntu clang version 14.0.0-1ubuntu1"
+    }
+  ],
+  "unproven_items": [
+    "The recorded source revisions actually produced the prebuilt archive.",
+    "Reproducible compilation with authenticated compiler, assembler, archiver, standard-library and build-image inputs.",
+    "Complete implementation and cryptographic review: retrieved BLS bodies were checked for identity/notices/includes only; transitive implementation bodies such as mcl/impl/bn_c_impl.hpp remain uninspected.",
+    "Complete file-level third-party license/copyright attribution and distribution obligations.",
+    "Independent upstream commit identities for the vendored Xbyak/cybozulib copies.",
+    "Lifted-ElGamal inclusion in this archive; it is declared by MCL README only.",
+    "Whole-process dynamic memory permissions or runtime JIT absence across every execution path.",
+    "Remediation of the separately known Prysm concurrent BLS cache issue.",
+    "Current-network interoperability, authenticated head/finality, target-hardware soak, capacity, or production readiness."
+  ],
+  "coverage_exclusions": [
+    "Other CGO/native components, including BLST and secp256k1.",
+    "Complete C/C++ standard-library, linker/runtime and operating-system component provenance.",
+    "Complete Go application and test dependency graphs."
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "HERUMI_ARCHIVE_EVIDENCE.json": {
+    "bytes": 45765,
+    "sha256": "fca87fdb8d43e7f1c53fc17dbbd220ce06e9ea77b1ee9e47aa9b7b47d9c97196"
+  },
+  "MCL.COPYRIGHT.txt": {
+    "bytes": 1501,
+    "sha256": "5d1e7a7fc15e2249a7744ab54a37c93b6520d1be68d6f23430fd405197c7c8ab"
+  },
+  "NO_TRANSACTION_CONNECTION_PLAN.md": {
+    "bytes": 2995,
+    "sha256": "11a2d9484ff65c4298357f85df15ae64d7f2e7e0ea41bfd8cadd5e4067ca79ef"
+  },
+  "README.md": {
+    "bytes": 9025,
+    "sha256": "2ae3702de9dc694155fd440fa0de5533bce309a57e150f9861abf5ee9ab06411"
+  }
+}

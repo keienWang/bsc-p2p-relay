@@ -6,6 +6,8 @@ https://github.com/keienWang/bsc-p2p-relay/commit/3d3ef40c2481282cfe986eed4cba1d
 
 That commit passed both the default test/security job and the isolated official BSC txpool job in [hosted workflow run 42862935041](https://github.com/keienWang/bsc-p2p-relay/actions/runs/42862935041) before this manifest was generated. The manifest describes Linux amd64 with CGO enabled and Go 1.26.10. It includes Go runtime/application module dependencies, not every operating-system or native-library package, test-only dependency, a container image, or a released binary. Recreate it for each supported target/release.
 
+The separate [targeted Herumi archive evidence](native-herumi/README.md) records one native archive's source associations and selected notices. It does not change this Go SBOM's coverage, cover other CGO/native components, or complete the dependency-license audit and corresponding-source requirements.
+
 ## Generation and provenance
 
 The generator is pinned to `github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0`. `scripts/generate_sbom.py` copies the exact selected Git commit into a disposable ordinary local clone, so linked-worktree limitations do not change which source is described. It does not read uncommitted edits, change the source checkout, fetch a different branch, or push anything.
