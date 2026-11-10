@@ -521,6 +521,9 @@ func uniqueBounds(n *Node) error {
 	if len(n.cache.entries) > n.cfg.CacheCount || total != n.cache.bytes || total > n.cfg.CacheBytes {
 		return fmt.Errorf("cache bound/accounting: count=%d bytes=%d actual=%d", len(n.cache.entries), n.cache.bytes, total)
 	}
+	if err := cacheInvariantLocked(n.cache); err != nil {
+		return err
+	}
 	for _, p := range n.peers {
 		if len(p.sent) > n.cfg.CacheCount || cap(p.queue) != 64 || len(p.queue) > 64 {
 			return errors.New("per-peer count/queue bound violated")

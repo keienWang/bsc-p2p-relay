@@ -1,4 +1,22 @@
-# Local verification record
+# Local verification records
+
+Results are specific to the source and scope stated in each record. Historical
+failures or passes below are not claims about an untested later commit.
+
+## Latest cache integration record
+
+The indexed-cache and conservative bulk-expiry implementation was locally
+integrated at `2dd88ac3cbbf09ed3234173139ff667c9bb63c17` on 2026-11-10. The
+[complete integration record](CACHE_BULK_EXPIRY.md#independent-review-and-integrated-local-validation)
+binds the independent review, six serial local verification phases, exact command
+scopes, durations and log hashes. Default race/vet/build/smoke, module/guard checks,
+10 Python tests, actual official-txpool tagged race/vet/guard, and the default plus
+tagged test-graph vulnerability scans passed. All scanners reported no findings.
+This is not hosted-CI confirmation, public-network delivery, modern BLS safety or
+production certification. The unchanged third research job still needs to pass
+on the exact eventual public commit with the two other jobs.
+
+## Historical initial implementation
 
 This section records the initial implementation. For the subsequent dependency remediation and currently passing local security gate, see [CI_SECURITY_FIX.md](CI_SECURITY_FIX.md).
 

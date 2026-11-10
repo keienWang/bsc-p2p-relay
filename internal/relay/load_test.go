@@ -68,6 +68,9 @@ func assertLoadBounds(t *testing.T, n *Node) {
 	if len(n.cache.entries) > n.cfg.CacheCount || total != n.cache.bytes || total > n.cfg.CacheBytes {
 		t.Fatalf("cache count=%d bytes=%d actual=%d", len(n.cache.entries), n.cache.bytes, total)
 	}
+	if err := cacheInvariantLocked(n.cache); err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range n.peers {
 		if len(p.sent) > n.cfg.CacheCount || len(p.queue) > cap(p.queue) {
 			t.Fatal("peer state exceeded configured bounds")
@@ -226,12 +229,7 @@ func TestLoadConcurrentSubmitHealthAndExpiry(t *testing.T) {
 	// A second deterministic expiry epoch must free both cache and sent-map
 	// capacity, and allow the other 32 hashes without stale-map starvation.
 	n.submitMu.Lock()
-	n.cache.mu.Lock()
-	for h, e := range n.cache.entries {
-		e.expires = expired
-		n.cache.entries[h] = e
-	}
-	n.cache.mu.Unlock()
+	setCacheExpiryForTest(t, n.cache, expired)
 	for _, p := range n.peers {
 		for h := range p.sent {
 			p.sent[h] = expired
@@ -300,7 +298,7 @@ func TestLoadCacheByteLimitRecovery(t *testing.T) {
 	assertLoadBounds(t, n)
 }
 
-// These in-memory benchmarks exercise signature validation, cache scan,
+// These in-memory benchmarks exercise signature validation, cache admission,
 // per-peer sent-map scans, and admission. They measure no network throughput.
 func BenchmarkSubmitNearCapacity(b *testing.B) {
 	txs, raws := loadFixtures(b, 901)
@@ -364,12 +362,7 @@ func TestLoadTargetExpiresBeforeSentSweep(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	nextSweep := time.Now().Add(time.Hour)
 	n.submitMu.Lock()
-	n.cache.mu.Lock()
-	for hash, e := range n.cache.entries {
-		e.expires = past
-		n.cache.entries[hash] = e
-	}
-	n.cache.mu.Unlock()
+	setCacheExpiryForTest(t, n.cache, past)
 	for _, p := range n.peers {
 		p.sentNextSweep = nextSweep
 		for hash := range p.sent {
@@ -424,11 +417,7 @@ func TestLoadFullSentMapForcesReclamation(t *testing.T) {
 	}
 	past := time.Now().Add(-time.Hour)
 	n.submitMu.Lock()
-	n.cache.mu.Lock()
-	entry := n.cache.entries[txs[0].Hash()]
-	entry.expires = past
-	n.cache.entries[txs[0].Hash()] = entry
-	n.cache.mu.Unlock()
+	setCacheExpiryForTest(t, n.cache, past, txs[0].Hash())
 	for _, p := range n.peers {
 		p.sent[txs[0].Hash()] = past
 		p.sentNextSweep = time.Now().Add(time.Hour)
@@ -473,11 +462,7 @@ func TestLoadIdlePruneReclaimsExpiredMetadata(t *testing.T) {
 	}
 	past := time.Now().Add(-time.Hour)
 	n.submitMu.Lock()
-	n.cache.mu.Lock()
-	entry := n.cache.entries[txs[0].Hash()]
-	entry.expires = past
-	n.cache.entries[txs[0].Hash()] = entry
-	n.cache.mu.Unlock()
+	setCacheExpiryForTest(t, n.cache, past, txs[0].Hash())
 	for _, p := range n.peers {
 		p.sent[txs[0].Hash()] = past
 		p.sentNextSweep = time.Now().Add(time.Hour)

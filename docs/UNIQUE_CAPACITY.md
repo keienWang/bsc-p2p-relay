@@ -124,14 +124,17 @@ with instantly successful writers and tiny transactions, the ideal long-run
 Slow peers, HTTP admission, validation and CPU can further reduce it. This is a
 retention constraint, not a measured throughput guarantee.
 
-The present `store.add` calls `pruneLocked` on **every submission**, scanning the
-whole cache map, including duplicate and eventually rejected offers. That is
-O(CacheCount) work under the submission/cache locks near capacity; health reads
-also prune. Enlarging count/retention therefore changes admission CPU/lock cost
-as well as memory. Per-peer iteration, occasional sent-map sweeps and fanout add
-further work. The count formula is a storage feasibility condition, **not a
-performance guarantee** or a reason to increase limits without target-machine
-measurements. This batch does not redesign cache eviction/pruning.
+The **scan baseline used for the dated measurements** called `pruneLocked` on
+every submission and scanned the whole cache map, including duplicate and
+eventually rejected offers: O(CacheCount) work under the submission/cache locks
+near capacity. The subsequent [bounded expiry index](CACHE_EXPIRY_INDEX.md)
+checks the earliest deadline in O(1) when nothing has expired and physically
+removes due entries in O(log N) each. It changes neither retention nor admission
+policy; the dated results remain evidence for their original source only.
+Enlarging count/retention still changes CPU/lock cost and memory. Per-peer
+iteration, occasional sent-map sweeps and fanout add further work. The count
+formula is a storage feasibility condition, **not a performance guarantee** or a
+reason to increase limits without target-machine measurements.
 
 An initially empty cache admits an initial burst; another burst can begin when
 that first cohort expires. A finite-window average, including a window just past

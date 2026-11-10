@@ -2,6 +2,10 @@
 
 Date: 2026-11-10. Go 1.26.10, Linux amd64, Intel Xeon Platinum 8573C, GOMAXPROCS=9. These are in-memory measurements, not network delivery SLOs or production capacity.
 
+The measurements below predate the subsequent [bounded cache expiry index](CACHE_EXPIRY_INDEX.md).
+That document describes its invariants, regression coverage and benchmark plan;
+these historical numbers are not measurements of the new index.
+
 ## Identified bottleneck and change
 
 The near-capacity fixture holds 900 cached hashes and 20 peers, each remembering 900 hashes. Previously every submission scanned every per-peer map while holding the submission lock, about 18,000 map entries per call. A CPU profile attributed 54.55% cumulative CPU to map iteration.

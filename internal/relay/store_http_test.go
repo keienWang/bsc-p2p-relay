@@ -239,12 +239,9 @@ func TestExpiredCacheDoesNotSuppressRequeue(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Advance both synchronized expiration records without a wall-clock sleep.
-	n.cache.mu.Lock()
-	e := n.cache.entries[tx.Hash()]
-	e.expires = time.Now().Add(-time.Second)
-	n.cache.entries[tx.Hash()] = e
-	n.cache.mu.Unlock()
-	p.sent[tx.Hash()] = e.expires
+	expired := time.Now().Add(-time.Second)
+	setCacheExpiryForTest(t, n.cache, expired, tx.Hash())
+	p.sent[tx.Hash()] = expired
 	got, err := n.Submit(raw)
 	if err != nil || got.Duplicate || got.QueuedPeers != 1 || len(p.queue) != 2 {
 		t.Fatalf("expired requeue: %+v %v", got, err)
