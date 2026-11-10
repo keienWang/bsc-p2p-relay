@@ -43,6 +43,10 @@ verification, but is not a strict untrusted-header decoder or proof of P2P wire
 compatibility. This proof has not validated canonical serialized modern headers.
 Future wire/importer work needs a coherent fork schedule and canonical RLP
 round-trip plus authentic real-chain fixtures, separately from this snapshot test.
+A separate [coherent modern synthetic wire fixture](MODERN_WIRE_FIXTURE_RESEARCH.md)
+now tests a complete fork-order-checked profile and canonical Header RLP. It
+creates a new chain and new hashes; it does not reinterpret this earlier fixture,
+provide a real checkpoint, or implement the proposed importer.
 
 These observations do not prove the proposed schema's completeness or all
 membership/fork-transition invariants. The suggestions below need independent
