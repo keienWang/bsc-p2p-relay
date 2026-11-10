@@ -6,6 +6,8 @@ A Stage 1, memory-only relay for **already signed BNB Smart Chain transactions**
 
 Repository: https://github.com/keienWang/bsc-p2p-relay. Go module: `github.com/keienWang/bsc-p2p-relay`.
 
+The BSC STUN compatibility adapter and its security rationale are documented in [compat/stunv2](compat/stunv2/README.md) and [the CI security fix](docs/CI_SECURITY_FIX.md).
+
 ## Scope
 
 - Accept signed raw transactions over a loopback-only HTTP API.

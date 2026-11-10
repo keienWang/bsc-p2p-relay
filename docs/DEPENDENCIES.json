@@ -1781,8 +1781,12 @@
     },
     {
       "Path": "github.com/pion/dtls/v2",
-      "Version": "v2.2.12",
-      "Sum": "h1:KP7H5/c1EiVAAKUmXyCzPiQe5+bCJrpOeKg/L05dunk="
+      "Version": "v2.2.12"
+    },
+    {
+      "Path": "github.com/pion/dtls/v3",
+      "Version": "v3.1.5",
+      "Sum": "h1:9xJtVsHwMYeSjPp5Hh1FTis4DchnQWtnOa5o+6ygqfc="
     },
     {
       "Path": "github.com/pion/ice/v2",
@@ -1794,8 +1798,8 @@
     },
     {
       "Path": "github.com/pion/logging",
-      "Version": "v0.2.3",
-      "Sum": "h1:gHuf0zpoh1GW67Nr6Gj4cv5Z9ZscU7g/EaoC/Ke/igI="
+      "Version": "v0.2.4",
+      "Sum": "h1:tTew+7cmQ+Mc1pTBLKH2puKsOvhm32dROumOZ655zB8="
     },
     {
       "Path": "github.com/pion/mdns",
@@ -1832,17 +1836,27 @@
     {
       "Path": "github.com/pion/stun/v2",
       "Version": "v2.0.0",
-      "Sum": "h1:A5+wXKLAypxQri59+tmQKVs7+l6mMM+3d+eER9ifRU0="
+      "Replace": {
+        "Path": "./compat/stunv2"
+      }
+    },
+    {
+      "Path": "github.com/pion/stun/v3",
+      "Version": "v3.1.7",
+      "Sum": "h1:uRXMTlGLf89WgItGNyZ6aR5jMTX0NBbybXADpQCzn+E="
     },
     {
       "Path": "github.com/pion/transport/v2",
-      "Version": "v2.2.10",
-      "Sum": "h1:ucLBLE8nuxiHfvkFKnkDQRYWYfp8ejf4YBOPfaQpw6Q="
+      "Version": "v2.2.10"
     },
     {
       "Path": "github.com/pion/transport/v3",
-      "Version": "v3.0.7",
-      "Sum": "h1:iRbMH05BzSNwhILHoBoAPxoB9xQgOaJk+591KC9P1o0="
+      "Version": "v3.0.7"
+    },
+    {
+      "Path": "github.com/pion/transport/v4",
+      "Version": "v4.1.0",
+      "Sum": "h1:8S+nF2reM2cJuqC6g78OVy2BBgmbdns+acx3jA97BvQ="
     },
     {
       "Path": "github.com/pion/turn/v2",
@@ -1875,8 +1889,7 @@
     },
     {
       "Path": "github.com/pmezard/go-difflib",
-      "Version": "v1.0.0",
-      "Sum": "h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM="
+      "Version": "v1.0.0"
     },
     {
       "Path": "github.com/pointlander/compress",
@@ -2167,8 +2180,8 @@
     },
     {
       "Path": "github.com/stretchr/testify",
-      "Version": "v1.11.1",
-      "Sum": "h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U="
+      "Version": "v1.12.0",
+      "Sum": "h1:K6Mr6jO9JICuend/5xzTM03ydSV3vdNRYAdPSukj8uI="
     },
     {
       "Path": "github.com/subosito/gotenv",
@@ -2339,7 +2352,7 @@
     },
     {
       "Path": "github.com/yuin/goldmark",
-      "Version": "v1.4.13"
+      "Version": "v1.2.1"
     },
     {
       "Path": "github.com/yusufpapurcu/wmi",
@@ -2519,8 +2532,8 @@
     },
     {
       "Path": "golang.org/x/time",
-      "Version": "v0.9.0",
-      "Sum": "h1:EsRrnYcQiGH+5FfbgvV4AP7qEZstoyrHB0DzarOQ4ZY="
+      "Version": "v0.14.0",
+      "Sum": "h1:MRx4UaLrDotUKUdCIqzPC48t1Y9hANFKIRpNx+Te8PI="
     },
     {
       "Path": "golang.org/x/tools",

@@ -22,3 +22,7 @@ Official pinned references:
 ## Other dependencies and distribution
 
 BSC and the Go module graph include additional third-party components with their own licenses. This notice is not an exhaustive license inventory or a substitute for the notices in those modules. Before distributing a built binary, inspect the complete resolved dependency graph, preserve applicable notices, and meet corresponding-source and other license obligations. No binary-distribution compliance audit is claimed for this milestone.
+
+## Pion STUN compatibility update
+
+The project-owned `compat/stunv2` adapter is GPL-3.0-or-later and forwards the subset of the STUN v2 public API consumed by pinned BSC to `github.com/pion/stun/v3 v3.1.7`, using DTLS v3.1.5. No Pion implementation is copied into the adapter. The Pion implementation retains its MIT license, reproduced for reference in `compat/stunv2/UPSTREAM_LICENSE.txt`. Other module notices remain applicable. This adapter is not a complete STUN v2 implementation.

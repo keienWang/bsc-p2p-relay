@@ -1,5 +1,7 @@
 # Local verification record
 
+This section records the initial implementation. For the subsequent dependency remediation and currently passing local security gate, see [CI_SECURITY_FIX.md](CI_SECURITY_FIX.md).
+
 Date: 2026-11-10. Source implementation: `82db9454e094a8eb0f9c0e993335ab11c2e2f57d`; subsequent verification-document commits do not change that implementation. Environment: Linux amd64, Go 1.26.10. This is not a production certification.
 
 ## Passed

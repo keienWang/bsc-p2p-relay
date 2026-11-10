@@ -2,7 +2,10 @@ module github.com/keienWang/bsc-p2p-relay
 
 go 1.26.10
 
-require github.com/ethereum/go-ethereum v1.16.2
+require (
+	github.com/ethereum/go-ethereum v1.16.2
+	github.com/pion/stun/v2 v2.0.0
+)
 
 require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
@@ -53,11 +56,10 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/panjf2000/ants/v2 v2.4.5 // indirect
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
-	github.com/pion/dtls/v2 v2.2.12 // indirect
-	github.com/pion/logging v0.2.3 // indirect
-	github.com/pion/stun/v2 v2.0.0 // indirect
-	github.com/pion/transport/v2 v2.2.10 // indirect
-	github.com/pion/transport/v3 v3.0.7 // indirect
+	github.com/pion/dtls/v3 v3.1.5 // indirect
+	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/stun/v3 v3.1.7 // indirect
+	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.20.5 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -101,3 +103,5 @@ replace github.com/ethereum/go-ethereum => github.com/bnb-chain/bsc v1.8.2
 replace github.com/cometbft/cometbft => github.com/bnb-chain/greenfield-cometbft v1.3.2
 
 replace github.com/tendermint/tendermint => github.com/bnb-chain/tendermint v0.31.17
+
+replace github.com/pion/stun/v2 => ./compat/stunv2

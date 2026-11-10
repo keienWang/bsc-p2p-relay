@@ -11,6 +11,7 @@ vet:
 check: vet race build
 	@test -z "$$(gofmt -l cmd internal)"
 	go mod verify
+	python3 scripts/check_runtime_dependencies.py
 fuzz:
 	go test ./internal/relay -run='^$$' -fuzz=FuzzValidateRawTransaction -fuzztime=10s -parallel=2
 smoke: build
