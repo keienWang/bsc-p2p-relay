@@ -1,0 +1,24 @@
+# Third-party notices
+
+## New relay source
+
+New source written for this relay is licensed under the GNU General Public License, version 3 or (at your option) any later version: **GPL-3.0-or-later**. The GPL version 3 text is included in `LICENSE`.
+
+## BNB Smart Chain / go-ethereum
+
+This project depends on the official [bnb-chain/bsc](https://github.com/bnb-chain/bsc) fork of go-ethereum, pinned to **v1.8.2**, reviewed at commit **54afaff4da31ac9e49ba646a4f65104edac5a2f3**. The dependency retains the module/import name `github.com/ethereum/go-ethereum`; the relay's Go module explicitly replaces it with `github.com/bnb-chain/bsc v1.8.2`.
+
+The upstream repository describes library code outside `cmd` as LGPL version 3 and command/binary code inside `cmd` as GPL version 3. Reviewed library source headers grant LGPL version 3 or later. Upstream copyright and license notices remain applicable and are not replaced by the relay's source license.
+
+`COPYING.LESSER` contains the official GNU Lesser General Public License version 3 text. `LICENSE` contains the official GNU General Public License version 3 text, which the LGPL supplements. These license texts have been copied verbatim from the official BSC repository.
+
+Official pinned references:
+
+- [Upstream license description](https://github.com/bnb-chain/bsc/blob/54afaff4da31ac9e49ba646a4f65104edac5a2f3/README.md#license)
+- [Upstream GPL text](https://github.com/bnb-chain/bsc/blob/54afaff4da31ac9e49ba646a4f65104edac5a2f3/COPYING)
+- [Upstream LGPL text](https://github.com/bnb-chain/bsc/blob/54afaff4da31ac9e49ba646a4f65104edac5a2f3/COPYING.LESSER)
+- [Release v1.8.2](https://github.com/bnb-chain/bsc/releases/tag/v1.8.2)
+
+## Other dependencies and distribution
+
+BSC and the Go module graph include additional third-party components with their own licenses. This notice is not an exhaustive license inventory or a substitute for the notices in those modules. Before distributing a built binary, inspect the complete resolved dependency graph, preserve applicable notices, and meet corresponding-source and other license obligations. No binary-distribution compliance audit is claimed for this milestone.
