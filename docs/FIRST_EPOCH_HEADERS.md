@@ -78,7 +78,7 @@ source was retrieved without RPC; see the fixture README for provenance.
 Synthetic anchors are inaccessible through the exported constructor.
 
 These tests establish a bounded bootstrap experiment, not live operation. There
-are no validator/fork-transition fixtures, multi-block real successor sequence,
+are no validator/fork-transition fixtures, long real successor sequence,
 or BLS coverage. Production progression still needs authenticated checkpoint/snapshot
 bootstrap, bounded dependency-aware retention, verified reorg/finality handling,
 real public-chain fixtures, restart behavior, and independent review. Do not
@@ -140,3 +140,28 @@ fields guard the no-transition assumptions. The bounded snapshot test rebuilds
 at the maximum supported height and asserts exactly one genesis snapshot record,
 with a value under 64 KiB. Tests do not substitute for an independent review or
 real transition/BLS coverage.
+
+## Real block 2 transaction commitment extension
+
+The test-only `realfixtures_test.go` adds genuine mainnet progression from
+block 1 to block 2, sourced from a static public archival object. It recomputes
+the block hash, cross-checks block and transaction hashes against the independent
+pinned ethers fixture, and verifies the header through both official Parlia and
+the exported append-only API. The complete one-transaction list decodes without
+signing, round-trips canonically and reproduces the authenticated header's
+transaction trie root. Header-field and transaction-list tampering are rejected.
+
+No receipt details were supplied. Neither an absent nor empty receipt list can
+produce an outcome result; no success/failure, execution, canonicality or finality
+is inferred. This adds factual fixtures and tests only, with no production-source
+change, no RPC/network use by tests, and no expansion past the first-epoch limit.
+Exact static-object URL, recorded retrieval time, raw SHA-256 and source/license
+boundaries are in `internal/firstepoch/testdata/README.md` and the provenance JSON.
+
+For this block 2 fixture extension, focused genuine-header/transaction tests,
+`go test -count=1 -timeout=120s ./...`, `make check`, and `git diff --check` passed.
+The complete race suite passed; firstepoch took 106.7 seconds in this run, so its
+existing reconstruction-heavy tests remain expensive. Exact projection of every
+retained header/transaction field, raw byte count and SHA-256 were also checked
+against the downloaded source. No new fuzz run or live-network test was performed
+for this test-only extension.

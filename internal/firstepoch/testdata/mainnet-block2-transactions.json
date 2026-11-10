@@ -1,0 +1,16 @@
+[
+  {
+    "type": "0x0",
+    "chainId": "0x38",
+    "nonce": "0x0",
+    "to": "0x0000000000000000000000000000000000001001",
+    "gas": "0x7fffffffffffffff",
+    "gasPrice": "0x0",
+    "value": "0x0",
+    "input": "0xc96be4cb0000000000000000000000002d4c407bbe49438ed859fe965b140dcf1aab71a9",
+    "v": "0x93",
+    "r": "0xf440a61793afaa150924f2aa18dc92bc6f996faf7681b39288010f9467fbd0c2",
+    "s": "0x392c671957ff33ac30249fb8cf12f2dc10ba3edcf9a18078bf8c658c271a22ac",
+    "hash": "0x1d06a9d52255a2a4385d55093aec7671f3d7f6d83d4cd438991be8b6588e9b91"
+  }
+]

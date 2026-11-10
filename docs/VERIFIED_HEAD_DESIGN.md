@@ -36,7 +36,9 @@ Callers must not mutate inputs concurrently.
 
 The separate offline `internal/firstepoch` experiment now verifies direct
 successors 1–199 from hash-pinned official genesis. It includes genuine mainnet
-block 1 and official genesis fixtures, plus signed synthetic/differential tests.
+blocks 1–2 and official genesis fixtures, plus signed synthetic/differential tests.
+The complete block 2 transaction list reproduces its authenticated header
+commitment; receipt details remain unavailable and no outcome is inferred.
 It stops before epoch transitions and cannot track current heads. See
 [FIRST_EPOCH_HEADERS.md](FIRST_EPOCH_HEADERS.md) for its narrower trust model,
 resource proof and remaining bootstrap blockers. Relay/API integration remains

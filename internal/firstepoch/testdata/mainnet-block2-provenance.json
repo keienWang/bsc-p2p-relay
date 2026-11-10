@@ -1,0 +1,14 @@
+{
+  "requested_url": "https://gnfd-mainnet-bundle.nodereal.io/v1/view/mainnet-bsc-blocks/blocks_s0_e99/block_h2",
+  "final_url": "https://gnfd-mainnet-bundle.nodereal.io/v1/view/mainnet-bsc-blocks/blocks_s0_e99/block_h2",
+  "time_utc": "2026-11-10T16:06:13.153796+00:00",
+  "status": 200,
+  "bytes_read": 2328,
+  "truncated": false,
+  "raw_sha256": "a61a8b178c5ceebebde293b94eca29719c72731149b17f9b8a6b381224356bce",
+  "metadata_url": "https://gnfd-mainnet-bundle.nodereal.io/v1/queryBundle/mainnet-bsc-blocks/blocks_s0_e99",
+  "independent_source": "https://github.com/ethers-io/ancillary-bsc/blob/559783304776d82da943fba2be43bfe99e93afc3/src.ts/index.tests.ts",
+  "projection": "Header fields and complete one-transaction list only. RPC location metadata, claimed TD, size and uncles were omitted. No receipts supplied.",
+  "discovery_source_commit": "d616dedb2f62c64f1d5f68d0e2d3c3e3d1e8beca",
+  "discovery_source_url": "https://github.com/bnb-chain/greenfield-bsc-archiver/blob/d616dedb2f62c64f1d5f68d0e2d3c3e3d1e8beca/README.md"
+}
