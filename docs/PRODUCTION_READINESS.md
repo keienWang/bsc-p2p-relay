@@ -28,7 +28,7 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 
 ## Separate Stage 2: verified head and transaction outcome
 
-The authenticated live capabilities below remain unimplemented. An offline commitment checker now exists, but its results are conditional on an unauthenticated supplied header and it completes none of these live verification gates:
+The authenticated live capabilities below remain unimplemented. The offline commitment checker remains conditional on an unauthenticated supplied header. A separate first-epoch experiment authenticates genesis successors only through block 199, including a real mainnet block 1 fixture; it cannot follow the current chain. Neither completes these live verification gates:
 
 - [ ] Explicit trust/bootstrap model: verified ancestry from genesis or an independently trusted checkpoint and validator snapshot. An unverified peer's head is not a checkpoint.
 - [ ] Fork-aware Parlia header/seal/validator transition and finality verification, including adversarial fixtures.

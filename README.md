@@ -19,6 +19,8 @@ The BSC STUN compatibility adapter and its security rationale are documented in 
 
 The relay process provides no state, nonce, balance, fee-market, execution, authenticated inclusion, or finality verification. Transactions may be invalid against the current chain even after local validation. Peer retention and delivery are not guaranteed. Restarting loses the transaction cache and queues.
 
+Offline research modules separately check header-conditional transaction/receipt commitments and a [genesis-anchored first-epoch header experiment](docs/FIRST_EPOCH_HEADERS.md). They are not integrated into the relay and cannot track or confirm the live chain.
+
 ## Build and test
 
 Use Go **1.26.10 or a newer supported security-patched version** with normal Go build prerequisites for the target platform. Dependencies come from the public Go module ecosystem. The module replaces `github.com/ethereum/go-ethereum` with `github.com/bnb-chain/bsc v1.8.2`.
