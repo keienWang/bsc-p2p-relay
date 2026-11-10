@@ -110,7 +110,8 @@
     },
     {
       "Path": "github.com/Microsoft/go-winio",
-      "Version": "v0.6.2"
+      "Version": "v0.6.2",
+      "Sum": "h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY="
     },
     {
       "Path": "github.com/Nvveen/Gotty",
@@ -2480,8 +2481,8 @@
     },
     {
       "Path": "golang.org/x/crypto",
-      "Version": "v0.57.0",
-      "Sum": "h1:3ZVCjf8Ggz7zneR/EHRVx68Ctf+2pmIMP2UFhh9cC6M="
+      "Version": "v0.58.1-0.20261009181718-2f1f834330b2",
+      "Sum": "h1:zGDaB+/Mus2mScKvZ23k+W9NAUbP56sNM9SptgvWI5A="
     },
     {
       "Path": "golang.org/x/exp",
@@ -2498,8 +2499,8 @@
     },
     {
       "Path": "golang.org/x/net",
-      "Version": "v0.60.0",
-      "Sum": "h1:79p50tfZlm0J9YfoDsSi639qSXNGVwEzOPLCxM2FsYU="
+      "Version": "v0.62.0",
+      "Sum": "h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY="
     },
     {
       "Path": "golang.org/x/oauth2",
@@ -2508,13 +2509,13 @@
     },
     {
       "Path": "golang.org/x/sync",
-      "Version": "v0.23.0",
-      "Sum": "h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk="
+      "Version": "v0.24.0",
+      "Sum": "h1:iqiDrGoDgyuvAKrhLQthUEzU/R378N78gXbBjxed7oA="
     },
     {
       "Path": "golang.org/x/sys",
-      "Version": "v0.48.0",
-      "Sum": "h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo="
+      "Version": "v0.49.0",
+      "Sum": "h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA="
     },
     {
       "Path": "golang.org/x/telemetry",
@@ -2522,13 +2523,13 @@
     },
     {
       "Path": "golang.org/x/term",
-      "Version": "v0.46.0",
-      "Sum": "h1:3+OXuTbaKDgwk8jTi3aSLHRlmWqHEUDUtxnbFigO4YE="
+      "Version": "v0.47.0",
+      "Sum": "h1:cpyOwQkr2Nzxe2p6KnrTG7Ei2wtzjsuSjhpXXepZ/BM="
     },
     {
       "Path": "golang.org/x/text",
-      "Version": "v0.42.0",
-      "Sum": "h1:JbOZXgfeCPU9gacVtYliJqOhD+zhrEqK4LfdpmlUZqI="
+      "Version": "v0.43.0",
+      "Sum": "h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc="
     },
     {
       "Path": "golang.org/x/time",
@@ -2537,7 +2538,7 @@
     },
     {
       "Path": "golang.org/x/tools",
-      "Version": "v0.49.0"
+      "Version": "v0.51.0"
     },
     {
       "Path": "golang.org/x/xerrors",
@@ -2566,8 +2567,8 @@
     },
     {
       "Path": "google.golang.org/grpc",
-      "Version": "v1.83.1",
-      "Sum": "h1:HIO0+BEtBP6soyqvqC8sNUjZ7bTs+0hFQuFF+RAy++Y="
+      "Version": "v1.83.2",
+      "Sum": "h1:EManeRomTObA0BU7I8vXgg/78uE5MJ9M8B39EX2WscU="
     },
     {
       "Path": "google.golang.org/protobuf",

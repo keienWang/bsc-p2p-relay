@@ -16,7 +16,7 @@ security-patched transitive versions, Greenfield/Tendermint replacements and
 `./compat/stunv2` adapter remain in force. No BSC source-directory replacement,
 new module dependency, or alternative prototype module graph is used.
 
-The synthetic proof covers private JSON round-trip, checkpoint alignment,
+The synthetic proof covers private **Snapshot** JSON round-trip, checkpoint alignment,
 full-snapshot reconstruction/restart equality, BLS/finality, missing target-parent
 and delayed-epoch dependencies, Fermi depth 3 versus 4, corrupt BLS aggregates,
 and one complete modern validator replacement with recency clearing. It also
@@ -30,6 +30,19 @@ consume an invalid BLS vote even when `VerifyHeader` rejects the same header.
 These tests record the pinned dependency boundary, not behavior a future upstream
 version should preserve. Authentication of history and verify-before-reader
 ordering are mandatory for any future adapter.
+
+The synthetic fork schedule is not a realistic wire-header fixture: it activates
+Bohr and supplies `ParentBeaconRoot`, but leaves Cancun inactive and the preceding
+`WithdrawalsHash`, `BlobGasUsed` and `ExcessBlobGas` fields absent. Official
+in-memory `VerifyHeader` accepts this artificial combination. Encoding and then
+decoding its genesis or verified successor with official Header RLP fails at
+`WithdrawalsHash` because of that optional-field gap. `wire_boundary_test.go`
+records the observed limitation, not a requirement that real BSC headers fail.
+Official Header JSON round-trip preserves these two fixture hashes and successor
+verification, but is not a strict untrusted-header decoder or proof of P2P wire
+compatibility. This proof has not validated canonical serialized modern headers.
+Future wire/importer work needs a coherent fork schedule and canonical RLP
+round-trip plus authentic real-chain fixtures, separately from this snapshot test.
 
 These observations do not prove the proposed schema's completeness or all
 membership/fork-transition invariants. The suggestions below need independent
