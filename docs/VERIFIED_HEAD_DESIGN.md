@@ -4,6 +4,10 @@ Status: **live header verification and confirmation APIs remain disabled**. The
 new `internal/evidence` package is offline and has no network, RPC, persistence,
 or relay integration. Passing its checks does not authenticate the header.
 
+See the separate [checkpoint bootstrap proposal and compatibility proof](CHECKPOINT_BOOTSTRAP_DESIGN.md)
+for the next research step. Its bundle schema and resource policies are proposals,
+not an implemented importer or enabled live-head verification.
+
 ## Implemented boundary
 
 `CheckCompleteLists` accepts a supplied header plus two complete RLP lists: the

@@ -32,6 +32,7 @@ The authenticated live capabilities below remain unimplemented. The offline comm
 
 - [ ] Explicit trust/bootstrap model: verified ancestry from genesis or an independently trusted checkpoint and validator snapshot. An unverified peer's head is not a checkpoint.
 - [ ] Fork-aware Parlia header/seal/validator transition and finality verification, including adversarial fixtures.
+- [ ] Resolve or independently isolate the [upstream BLS cache concurrency/resource issue](BLS_CACHE_KNOWN_ISSUE.md) before any concurrent importer or modern BLS verification is enabled.
 - [ ] Bounded header/reorganization tracking and isolation from dishonest or eclipsing peers.
 - [ ] Transaction-root inclusion checks, receipt-root proof verification and receipt execution status anchored to a verified header.
 - [ ] Clear distinctions among observed, included, executed, reverted, reorged and finalized.
