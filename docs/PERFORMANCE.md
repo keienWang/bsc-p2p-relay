@@ -29,3 +29,21 @@ Run:
 go test -race -count=5 ./internal/relay -run 'TestLoad|TestCached|TestExpired|TestConcurrent'
 go test ./internal/relay -run='^$' -bench=BenchmarkSubmitNearCapacity -benchmem -benchtime=1s -count=3
 ```
+
+## Opt-in HTTP and transport-pressure harness
+
+See [the local soak protocol](SOAK.md) for separately measured 900/full-1,024
+occupancy, concurrent loopback HTTP, official BSC MsgPipe readers, slow-reader
+backpressure, same-ID replacement, expiry conservation, percentiles and resource
+snapshots. It is excluded from ordinary CI load and does not measure TCP/RLPx or
+remote txpool acceptance. Exact queue-only latency and long-duration production
+stability remain open gates.
+
+A [dated short-run evidence report](SOAK_RESULTS_2026-11-10.md) records the exact
+configuration, denominators, rejection/failure counts and successful latency
+percentiles. It does not close the long-duration production gate.
+
+The [v2 HTTP gate correction](SOAK_HTTP_VALIDATION.md) supersedes the original
+soak acceptance result: unexpected statuses, malformed responses and missing
+error denominators now fail both occupancy and expiry scenarios. Fault injections
+are isolated from performance samples.
