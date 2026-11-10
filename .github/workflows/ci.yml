@@ -45,3 +45,36 @@ jobs:
         run: GOBIN="$RUNNER_TEMP/officialpool-tools" GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - name: Scan the tagged integration test graph
         run: '"$RUNNER_TEMP/officialpool-tools/govulncheck" -test -tags=officialtxpool -show=verbose ./internal/relay'
+  canonical_isolation:
+    name: synthetic canonical Parlia isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOFLAGS: -buildvcs=false -mod=readonly -p=1 -tags=canonicalisolation
+      GOMAXPROCS: '2'
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Download the pinned modules
+        run: go mod download
+      - name: Reproduce the pinned synthetic canonical fixture
+        env:
+          BSC_MODERN_WIRE_OUTPUT_DIR: ${{ runner.temp }}/bsc-canonical-fixture
+        run: go test -count=1 -timeout=180s -run='^TestModernWireCheckpointRoundTrip$' ./internal/checkpointproof
+      - name: Check the tagged dependency boundary
+        run: python3 scripts/check_runtime_dependencies.py
+      - name: Vet the tagged research packages
+        run: go vet ./internal/canonicalisolation/...
+      - name: Test canonical admission, isolation and full replay
+        env:
+          BSC_CANONICAL_FIXTURE_DIR: ${{ runner.temp }}/bsc-canonical-fixture
+        run: go test -race -ldflags='-s=false -w=false' -count=1 -timeout=180s -v ./internal/canonicalisolation/...
+      - name: Install the pinned scanner independently
+        run: GOBIN="$RUNNER_TEMP/canonical-tools" GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Scan the exact tagged research test graph
+        run: '"$RUNNER_TEMP/canonical-tools/govulncheck" -test -tags=canonicalisolation -show=verbose ./internal/canonicalisolation/...'

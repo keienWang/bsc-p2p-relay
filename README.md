@@ -23,6 +23,8 @@ Offline research modules separately check header-conditional transaction/receipt
 
 An additional [checkpoint bootstrap proposal and synthetic compatibility proof](docs/CHECKPOINT_BOOTSTRAP_DESIGN.md) investigates complete trusted snapshots. It does not implement a bundle importer or enable modern-head verification. Concurrent modern BLS verification remains blocked by a [known upstream cache issue](docs/BLS_CACHE_KNOWN_ISSUE.md).
 
+A separate [canonical RLP process-isolation experiment](docs/CANONICAL_PROCESS_ISOLATION_RESEARCH.md) tests fixed synthetic context in fresh child processes. It has dedicated tagged CI coverage, but is not integrated into the relay and does not resolve its production BLS gate.
+
 ## Build and test
 
 Use Go **1.26.10 or a newer supported security-patched version** with normal Go build prerequisites for the target platform. Dependencies come from the public Go module ecosystem. The module replaces `github.com/ethereum/go-ethereum` with `github.com/bnb-chain/bsc v1.8.2`.
