@@ -98,6 +98,8 @@ Reports whether peers are ready for relay transport. Readiness does not prove pe
 
 The transaction cache is bounded by 1,024 entries, 16 MiB, and a two-minute TTL. Each peer has a 64-item outbound queue. These are best-effort transport buffers, not durable delivery guarantees. Expiration, capacity limits, disconnects, and process exit can all prevent delivery.
 
+Use the [experimental operator runbook](docs/OPERATIONS.md) for isolated local
+startup, HTTP/backpressure triage, resource observation and rollback rehearsal.
 See [production acceptance gates](docs/PRODUCTION_READINESS.md) before considering deployment.
 
 ## Offline evidence helper

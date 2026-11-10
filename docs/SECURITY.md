@@ -36,4 +36,4 @@ Use ordinary operating-system isolation and resource controls appropriate to you
 
 ## Reporting issues
 
-No public repository or security contact has been established yet. Share vulnerability details privately with the project owner through an already verified channel. Never include private keys, seed phrases, or unbroadcast valuable signed transactions in reports, logs, fixtures, or public issues.
+The public repository is [keienWang/bsc-p2p-relay](https://github.com/keienWang/bsc-p2p-relay). No dedicated security contact or private reporting mechanism is documented here. Share vulnerability details privately with the project owner through an already verified channel; do not assume public issues are a confidential reporting channel. Never include private keys, seed phrases, or unbroadcast valuable signed transactions in reports, logs, fixtures, or public issues.

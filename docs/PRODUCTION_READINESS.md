@@ -24,7 +24,7 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 - [ ] Vulnerability scan reviewed at the exact release commit. Known transitive-library findings must not be hidden.
 - [ ] Full dependency license audit and distribution-ready corresponding source. A target-specific CycloneDX 1.6 SBOM is recorded in SBOM.md; this does not complete the dependency-license audit or corresponding-source packaging.
 - [ ] Reproducible, checksummed release artifacts; complete corresponding source and dependency notices for redistributed binaries; hosted CI passes on the same commit.
-- [ ] Operational runbook, alert thresholds, rollout/rollback procedure and an explicit owner.
+- [ ] Operational acceptance of the [experimental runbook](OPERATIONS.md), target-specific alert thresholds/SLOs, tested rollout/rollback procedure and an explicit owner. The documented local rehearsal and incident procedures are preparation, not completion of this gate.
 - [ ] Signed-testnet transaction tests only with an authorized test account/budget. Do not send mainnet funds as a QA shortcut.
 
 ## Separate Stage 2: verified head and transaction outcome
