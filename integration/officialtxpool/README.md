@@ -85,13 +85,25 @@ separate production gates remain open.
 ## Separate dependency and security scope
 
 Importing the full official backend also builds upstream node, miner, Prysm
-keymanager, storage and telemetry code. The alternative modfile preserves every
-existing root requirement at the same version and adds 84 explicit indirect
-requirements. Relative to the documented comparison baseline, it adds 410
-non-standard imported package paths; selected-module enumeration expands from
-629 to 744 entries including the main module. Only the transitive selected
-Gomega version differs (1.10.1 to 1.31.0). Exact graph differences and versions
-are under `evidence/`; graph-only entries are not necessarily built or reachable.
+keymanager, storage and telemetry code. The original alternative modfile
+preserved every root requirement at the same version and added 84 explicit
+indirect requirements. The test-only OTel update intentionally changes 11
+integration versions without changing the root runtime graph. Local actual test-graph resolution, the real
+old-version single-file logging negative control, the new complete tagged race
+suite and a separate non-race vet have passed their stated checks. Two earlier
+bounded vet attempts timed out; the later successful vet does not relabel them.
+As of the 2026-11-11 local verification record, the complete updated test-graph
+vulnerability scan had not completed, and CI for this candidate had not been
+run. See [the OTel security note](OTEL_SECURITY.md) for exact commands, the
+linux/amd64 environment, results, opt-in skips and the narrower scope of the
+old negative control.
+
+The original fixture comparison, before this OTel update, added 410 non-standard
+imported package paths and expanded selected-module enumeration from 629 to 744
+entries including the main module. In that historical comparison only the
+transitive selected Gomega version differed (1.10.1 to 1.31.0). Those are not the
+current upgraded graph's counts or version-difference claims. Historical data
+is under `evidence/`; graph-only entries are not necessarily built or reachable.
 
 The integration graph inherits the root's gRPC 1.83.2 and x/net 0.62.0 security
 patches. Its x/crypto 0.58.1-0.20261009181718-2f1f834330b2 pseudo-version removes
@@ -102,18 +114,18 @@ across its versions and must not be reintroduced. The dependency guard rejects
 OpenPGP package imports and the split module, even as a graph-only dependency;
 it is also run with this test's tag and alternative modfile in CI.
 
-Install the pinned scanner independently, without the integration GOFLAGS, then
-scan the actual integration test graph:
+A default production-only scanner pass does not cover this fixture. The legacy
+`govulncheck@v1.9.0 -test` invocation also omitted 84 test-only modules in the
+observed graph, so it must not be treated as complete integration coverage even
+when it exits successfully. Merely supplying `-test`, the build tag and the
+alternative modfile does not repair that omission.
 
-```sh
-GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
-GOFLAGS='-buildvcs=false -mod=readonly -modfile=integration/officialtxpool/go.mod -tags=officialtxpool' \
-  govulncheck -test -tags=officialtxpool -show=verbose ./internal/relay
-```
-
-The scanner executable must be on `PATH`. The CI job installs it in an isolated
-tools directory and invokes it directly. `-test`, the build tag and the modfile
-are essential: a default production-only scanner pass does not cover this
-fixture. Do not suppress findings or relax either scan. When root dependencies
-change, refresh and review this modfile, then rerun both scopes independently.
-See [the verification record](VERIFICATION.md) for commands, results and limits.
+The updated actual test graph needs an independently complete scan before
+release, with coverage checked against the compiled/test package metadata and
+selected module identities. That scan had not completed for this candidate as
+of the 2026-11-11 local verification record.
+Do not suppress findings, relax coverage, or infer a clean scan from the local
+race/vet results. When root dependencies change, refresh and review this modfile,
+then validate both runtime and integration scopes independently. Historical
+commands/results in [the verification record](VERIFICATION.md) retain their
+original scope and are not a new complete-graph security pass.
