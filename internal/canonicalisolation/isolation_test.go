@@ -67,7 +67,10 @@ func worker(t *testing.T) string {
 		cmd := exec.CommandContext(ctx, "go", "build", "-race", "-tags=canonicalisolation", "-o", workerPath, "./worker")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		start := time.Now()
+		t.Logf("worker build start: argv=%q", cmd.Args)
 		buildErr = cmd.Run()
+		t.Logf("worker build finished: elapsed=%s err=%v", time.Since(start), buildErr)
 	})
 	if buildErr != nil {
 		t.Fatalf("worker build: %v", buildErr)
@@ -199,7 +202,9 @@ func run(t *testing.T, request protocol.Request) (protocol.Response, processResu
 	if len(raw) > protocol.MaxInput {
 		t.Fatal("test request exceeds envelope bound")
 	}
-	return call(context.Background(), worker(t), nil, raw)
+	r, s, err := call(context.Background(), worker(t), nil, raw)
+	t.Logf("worker process PID=%d waited=%v exit=%d elapsed=%s (Start through Wait; excludes slot wait)", s.PID, s.Waited, s.ExitCode, s.Elapsed)
+	return r, s, err
 }
 
 func loadBundle(t *testing.T) protocol.Bundle {
@@ -230,13 +235,20 @@ var fixtureErr error
 func fixture(t *testing.T) (protocol.Request, protocol.Candidates) {
 	t.Helper()
 	fixtureOnce.Do(func() {
+		start := time.Now()
+		defer func() { t.Logf("fixture preparation elapsed=%s", time.Since(start)) }()
+		phase := time.Now()
 		b := loadBundle(t)
+		t.Logf("fixture load/authenticate elapsed=%s", time.Since(phase))
+		phase = time.Now()
 		raw, err := json.Marshal(b)
+		t.Logf("fixture encode elapsed=%s", time.Since(phase))
 		if err != nil {
 			fixtureErr = err
 			return
 		}
 		output, stats, err := execute(context.Background(), worker(t), []string{"--candidates"}, raw)
+		t.Logf("fixture generator PID=%d waited=%v exit=%d elapsed=%s (Start through Wait; excludes slot wait)", stats.PID, stats.Waited, stats.ExitCode, stats.Elapsed)
 		if err != nil || !stats.Waited || stats.ExitCode != 0 {
 			fixtureErr = fmt.Errorf("fixture generator: %+v %v", stats, err)
 			return
@@ -440,7 +452,7 @@ func TestCanonicalInputBounds(t *testing.T) {
 			if err == nil || r.Accepted || r.Stage != "admission" || r.Error != tc.want || r.Reads != 0 || r.Misses != 0 || !s.Waited || s.ExitCode != 2 {
 				t.Fatalf("wrong admission failure: %+v %+v %v", r, s, err)
 			}
-			t.Logf("exact admission error=%q; bytes=%d PID=%d waited=%v", r.Error, len(tc.raw), s.PID, s.Waited)
+			t.Logf("exact admission error=%q; bytes=%d PID=%d waited=%v exit=%d elapsed=%s (Start through Wait; excludes slot wait)", r.Error, len(tc.raw), s.PID, s.Waited, s.ExitCode, s.Elapsed)
 		})
 	}
 }

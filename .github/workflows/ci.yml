@@ -70,6 +70,15 @@ jobs:
         with:
           go-version: '1.26.11'
           cache: true
+          # Separate race-worker cache from the default job's immutable key.
+          # Cache misses still take the full bounded preparation/build path.
+          cache-dependency-path: |
+            go.mod
+            go.sum
+            compat/stunv2/go.mod
+            compat/stunv2/go.sum
+            internal/canonicalisolation/**/*.go
+            scripts/prebuild_canonical_worker.sh
       - name: Verify the security-patched toolchain
         run: |
           go version
@@ -84,6 +93,11 @@ jobs:
         run: python3 scripts/check_runtime_dependencies.py
       - name: Vet the tagged research packages
         run: go vet ./internal/canonicalisolation/...
+      - name: Check the worker prebuild contract
+        run: python3 -m unittest discover -s scripts -p 'test_canonical_prebuild.py'
+      - name: Prepare the canonical race-worker build cache
+        timeout-minutes: 4
+        run: bash scripts/prebuild_canonical_worker.sh
       - name: Test canonical admission, isolation and full replay
         env:
           BSC_CANONICAL_FIXTURE_DIR: ${{ runner.temp }}/bsc-canonical-fixture
