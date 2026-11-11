@@ -27,7 +27,7 @@ A separate [canonical RLP process-isolation experiment](docs/CANONICAL_PROCESS_I
 
 ## Build and test
 
-Use Go **1.26.10 or a newer supported security-patched version** with normal Go build prerequisites for the target platform. Dependencies come from the public Go module ecosystem. The module replaces `github.com/ethereum/go-ethereum` with `github.com/bnb-chain/bsc v1.8.2`.
+Use Go **1.26.11 or a newer supported security-patched version** with normal Go build prerequisites for the target platform. Dependencies come from the public Go module ecosystem. The module replaces `github.com/ethereum/go-ethereum` with `github.com/bnb-chain/bsc v1.8.2`. Go 1.27 users need **1.27.4 or later**, not 1.27.0–1.27.3, for the same HTTP security fix. See [the toolchain security note](docs/GO_HTTP_SECURITY_2026-11-11.md).
 
 ```sh
 go mod download

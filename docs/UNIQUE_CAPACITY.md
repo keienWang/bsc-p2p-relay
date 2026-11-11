@@ -193,7 +193,7 @@ Minimum business inputs still needed, rather than guessed here:
 
 ## Short proof and strict accounting
 
-Run with Go 1.26.10, pre-cached pinned dependencies, and no competing expensive
+Run with Go 1.26.11, pre-cached pinned dependencies, and no competing expensive
 test process:
 
 ```sh

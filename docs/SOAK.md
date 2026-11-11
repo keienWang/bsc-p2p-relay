@@ -9,7 +9,7 @@ new evidence](SOAK_HTTP_VALIDATION.md).
 
 ## Reproduce
 
-Use Go 1.26.10 and the repository's pinned BSC v1.8.2 dependencies, downloaded
+Use Go 1.26.11 and the repository's pinned BSC v1.8.2 dependencies, downloaded
 before the run. The script uses `GOTOOLCHAIN=local`, `GOPROXY=off`, a shared
 `flock`, and GOMAXPROCS=2 by default. It starts at most one load process and
 preserves environment metadata, a JSON report, the full log, and exit code in a

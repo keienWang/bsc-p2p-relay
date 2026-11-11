@@ -118,7 +118,7 @@ matches [public 3ff8999](https://github.com/keienWang/bsc-p2p-relay/commit/3ff89
 This candidate is integrated on the later [public d147633f](https://github.com/keienWang/bsc-p2p-relay/commit/d147633f1af87b02fe77d4ef9757b7b3364292fa) tree, preserving its load tests and supply-chain documents. Dependencies remain exactly pinned by its unchanged
 `go.mod` and `go.sum`. The default code still uses BSC v1.8.2.
 
-For reproduction, put Go 1.26.10 on PATH and download/verify the pinned
+For reproduction, put Go 1.26.11 on PATH and download/verify the pinned
 modules before an offline run. Keep the usual checksum-database settings:
 
 ```sh

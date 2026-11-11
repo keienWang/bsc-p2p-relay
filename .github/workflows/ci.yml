@@ -2,6 +2,8 @@ name: test
 on: [push, pull_request]
 permissions:
   contents: read
+env:
+  GOTOOLCHAIN: local
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -9,8 +11,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
+      - name: Verify the security-patched toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.26.11
       - run: go mod download
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
@@ -30,11 +36,15 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
           cache-dependency-path: |
             go.sum
             integration/officialtxpool/go.sum
+      - name: Verify the security-patched toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.26.11
       - name: Check the tagged dependency boundary
         run: python3 scripts/check_runtime_dependencies.py
       - name: Vet the tagged relay
@@ -58,8 +68,12 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
+      - name: Verify the security-patched toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.26.11
       - name: Download the pinned modules
         run: go mod download
       - name: Reproduce the pinned synthetic canonical fixture

@@ -12,7 +12,7 @@ without `continue-on-error`; it checks this integration graph independently.
 
 ## Run from the repository root
 
-Use the repository's Go version (currently Go 1.26.10):
+Use the repository's Go version (currently Go 1.26.11):
 
 ```sh
 export GOFLAGS='-buildvcs=false -mod=readonly -modfile=integration/officialtxpool/go.mod -tags=officialtxpool'

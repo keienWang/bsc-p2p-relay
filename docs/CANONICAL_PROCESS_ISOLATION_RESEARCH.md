@@ -208,7 +208,7 @@ large key sets or malicious RSS behavior safe.
 
 ## Reproduction and evidence
 
-Use Go 1.26.10 with the already pinned modules available locally. No dependencies
+Use Go 1.26.11 with the already pinned modules available locally. No dependencies
 need to be fetched by this experiment. Keep normal checksum-verification settings:
 
 ```sh
@@ -381,7 +381,7 @@ isolation**, generates the fixture from the checked-out source in a fresh runner
 temporary directory, then checks the compiled pins in the research tests. It
 does not download a prebuilt checkpoint or reuse a previous job's artifact.
 
-That job fixes Go 1.26.10 and `GOMAXPROCS=2`, uses readonly module resolution and
+That job fixes Go 1.26.11 and `GOMAXPROCS=2`, uses readonly module resolution and
 serial package builds, vets the tagged packages, and runs the complete tagged
 race suite with symbols retained for the actual supervisor-binary checks. It
 also runs the existing dependency guard under the tag and scans the exact tagged
