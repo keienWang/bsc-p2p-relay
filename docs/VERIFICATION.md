@@ -3,6 +3,19 @@
 Results are specific to the source and scope stated in each record. Historical
 failures or passes below are not claims about an untested later commit.
 
+## Node lifecycle hardening, 2026-11-11
+
+The [lifecycle verification record](NODE_LIFECYCLE.md#independent-review-and-aggregate-local-verification)
+binds the retained old-code failure, author and independent focused race passes,
+initial documentation/Python failures and their correction, and aggregate checks
+on `a7c2d0d0b07eb42d15f0faabd16ab62b8f8b8354`. Default vet/race/build, 43 Python
+tests, format/module/dependency checks and process smoke passed, as did the exact
+official-txpool tagged guard/vet/race scope. This is local API lifecycle hardening,
+not a demonstrated remote exploit or a full startup/network-safety guarantee.
+Fresh vulnerability scanning, the separate tagged canonical suite, hosted CI and
+production acceptance were not rerun or completed by this work. The final
+verification-document changes do not alter the tested Go sources.
+
 ## Latest cache integration record
 
 The indexed-cache and conservative bulk-expiry implementation was locally

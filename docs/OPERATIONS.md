@@ -118,6 +118,15 @@ can be abandoned. Wait for process exit and record its status. Do not use a
 forced kill as an ordinary shutdown or treat a clean exit as a delivery receipt.
 Any uncompleted or unanswered client request has an uncertain outcome.
 
+### Node lifecycle callers
+
+Repository code embedding `internal/relay.Node` must create a fresh Node after
+Close or a failed Start. Calling Start on the old instance returns
+`node is closed; create a new node to restart` (`ErrNodeClosed`). This is a
+lifecycle-method error, **not a Submit error or an HTTP rejection response**.
+The CLI has no in-process restart path. See the [single-use lifecycle contract,
+cleanup review and test limits](NODE_LIFECYCLE.md).
+
 ## HTTP contract and client decisions
 
 `POST /v1/transactions` takes `Content-Type: application/json` (a `;` parameter is

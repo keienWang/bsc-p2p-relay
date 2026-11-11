@@ -26,6 +26,7 @@ const maxMessage = 10 * 1024 * 1024
 const maxRequestMessage = 2 * 1024 * 1024
 const maxHandshakeMessage = 64 * 1024
 
+var ErrNodeClosed = errors.New("node is closed; create a new node to restart")
 var ErrNoPeers = errors.New("no compatible transaction-receiving peer is ready")
 var ErrQueuesFull = errors.New("all peer queues are full; retry later")
 var ErrAdmissionExpired = errors.New("transaction expired during admission; retry later")
@@ -62,18 +63,20 @@ type peerSession struct {
 	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
-	stats         runtimeStats
-	submitMu      sync.Mutex
-	cfg           Config
-	chain         *chainView
-	cache         *store
-	server        *p2p.Server
-	mu            sync.RWMutex
-	peers         map[enode.ID]*peerSession
-	stop          chan struct{}
-	stopOnce      sync.Once
-	writes        atomic.Uint64
-	writeFailures atomic.Uint64
+	stats           runtimeStats
+	submitMu        sync.Mutex
+	cfg             Config
+	chain           *chainView
+	cache           *store
+	server          *p2p.Server
+	mu              sync.RWMutex
+	peers           map[enode.ID]*peerSession
+	stop            chan struct{}
+	lifecycleMu     sync.Mutex // Serializes Start, Close, and their terminal state.
+	started         bool
+	maintenanceDone chan struct{} // Non-nil only after successful Start.
+	writes          atomic.Uint64
+	writeFailures   atomic.Uint64
 }
 
 type Submission struct {
@@ -135,11 +138,37 @@ func New(cfg Config) (*Node, error) {
 	n.server = &p2p.Server{Config: p2p.Config{PrivateKey: key, Name: "bsc-p2p-relay/0.1.0", MaxPeers: cfg.MaxPeers, MaxPeersPerIP: 4, MaxPendingPeers: 8, DialRatio: 1, ListenAddr: cfg.ListenAddr, NoDiscovery: cfg.NoDiscovery, DiscoveryV4: !cfg.NoDiscovery, BootstrapNodes: boots, StaticNodes: peers, NodeDatabase: "", Protocols: []p2p.Protocol{{Name: "eth", Version: 68, Length: 17, Run: n.runPeer}}}}
 	return n, nil
 }
+
+// Start starts a single-use node. A closed node or a failed start cannot be
+// retried: create a new Node instead. A second Start while running returns an
+// error without stopping the existing server.
 func (n *Node) Start() error {
+	n.lifecycleMu.Lock()
+	defer n.lifecycleMu.Unlock()
+	select {
+	case <-n.stop:
+		return ErrNodeClosed
+	default:
+	}
+	if n.started {
+		return errors.New("node already running")
+	}
 	if err := n.server.Start(); err != nil {
+		// The upstream server can start background work before returning an
+		// error and explicitly does not support reuse after stopping.
+		n.closeLocked()
+		// On a failed Start, the server's run loop never owns the database
+		// cleanup. Stop signals/waits for startup workers and closes the
+		// listener, but does not close this failed-start database.
+		if local := n.server.LocalNode(); local != nil {
+			local.Database().Close()
+		}
 		return err
 	}
+	n.started = true
+	n.maintenanceDone = make(chan struct{})
 	go func() {
+		defer close(n.maintenanceDone)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
@@ -153,7 +182,29 @@ func (n *Node) Start() error {
 	}()
 	return nil
 }
-func (n *Node) Close()        { n.stopOnce.Do(func() { close(n.stop); n.server.Stop() }) }
+
+// Close is idempotent and terminal, including before Start. It waits for local
+// maintenance and delegates transport shutdown to the upstream P2P server.
+func (n *Node) Close() {
+	n.lifecycleMu.Lock()
+	defer n.lifecycleMu.Unlock()
+	n.closeLocked()
+}
+
+// closeLocked requires lifecycleMu. Holding it through shutdown also makes
+// concurrent Close callers wait for the same completed shutdown.
+func (n *Node) closeLocked() {
+	select {
+	case <-n.stop:
+		return
+	default:
+	}
+	close(n.stop)
+	n.server.Stop()
+	if n.maintenanceDone != nil {
+		<-n.maintenanceDone
+	}
+}
 func (n *Node) Enode() string { return n.server.Self().URLv4() }
 func (n *Node) Health() Health {
 	n.mu.RLock()

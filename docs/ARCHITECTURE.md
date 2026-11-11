@@ -53,6 +53,9 @@ The HTTP listener defaults to `127.0.0.1:8787` and is restricted to loopback for
 
 Health and readiness are transport diagnostics. Neither proves a valid chain view or transaction delivery.
 
+Node instances are single-use: Close and failed Start are terminal, and restart
+requires a fresh Node. See [the lifecycle contract and scoped verification](NODE_LIFECYCLE.md).
+
 ## Stage 2 is separate work
 
 Verified transaction inclusion requires more than observing gossip. A future design needs an independently trusted checkpoint or genesis-derived ancestry, Parlia header/validator-transition verification, explicit fork rules, reorganization handling, and evidence linking transaction and receipt roots to verified headers. Finality requires its own consensus evidence and trust model. Peer voting or copying the largest advertised head/TD is not a replacement.
