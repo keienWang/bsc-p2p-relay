@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
@@ -72,7 +73,7 @@ func (n *Node) Handler() http.Handler {
 				apiError(w, 405, "POST required")
 				return
 			}
-			if media := strings.Split(r.Header.Get("Content-Type"), ";")[0]; media != "application/json" {
+			if media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || media != "application/json" {
 				apiError(w, 415, "application/json required")
 				return
 			}

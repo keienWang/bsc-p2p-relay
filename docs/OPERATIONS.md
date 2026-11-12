@@ -129,8 +129,10 @@ cleanup review and test limits](NODE_LIFECYCLE.md).
 
 ## HTTP contract and client decisions
 
-`POST /v1/transactions` takes `Content-Type: application/json` (a `;` parameter is
-allowed) and one JSON object containing a `raw_tx` string, such as
+`POST /v1/transactions` takes `Content-Type: application/json`. The media type is
+parsed case-insensitively with Go `mime.ParseMediaType`; valid whitespace and
+parameters are accepted. Malformed parameters or conflicting duplicate parameter
+values receive 415. The body must be one JSON object containing a `raw_tx` string, such as
 `{"raw_tx":"0x..."}`. The ellipsis is illustrative, not a valid transaction.
 Send exactly one `raw_tx` key. Unknown fields and trailing JSON values are
 rejected. The server uses Go `encoding/json` with `DisallowUnknownFields`; it is
