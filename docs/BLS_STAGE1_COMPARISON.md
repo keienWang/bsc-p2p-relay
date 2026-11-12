@@ -315,3 +315,82 @@ is historical evidence, not proof of this strengthened assertion. Its retained
 log SHA-256 is 85560cf835b2992c00811f0ddd0f8b510407db45fb3687478c93438ff6156878.
 The new capture contracts are named test_bls_cache_race_metadata.py so the
 existing Stage1 focused-test glob includes them without any workflow edit.
+
+
+## Third hosted failure and private whole-tree path successor
+
+Research e2f, run
+[43300219889 / 131469077851](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43300219889/job/131469077851),
+passed baseline graph JSON parsing and prepare-baseline-modules, then stopped
+with unsafe_relative_name. The module command exited 0 after 8 ms; its separate
+stdout was 11553 bytes, SHA-256
+1c96f0d81736b5602bc887eb071955e08dbf3bd0d33ee2c75eb68c2adddf5b4a,
+and stderr was empty. The safe failure payload was 837 bytes, SHA-256
+5da39c406e56b0964b392df4b879f6cd65fc4a96a36e45b5e70f9b3cc55e7f51.
+Hosted log SHA-256:
+24d2c30aae09b55278805edbfa6bb1b3df30c63ab0cde25ecc72b376919f030d.
+The final hosted manifest SHA-256 is
+9661ac4e3dc546fe8aebc06cef0e45babbfc2285c3fba5bb2fd995ad52e41809.
+The other six jobs succeeded. No namespace, converter build, BLS test-binary
+compilation or race execution was reached. The old run is retained, not rerun.
+The private raw input was not exported: its first offending name and precise
+validation subphase remain unknown.
+
+Read-only fixed upstream evidence establishes a narrower, independent structural
+conflict. The complete official BLST Git tree at
+`a3c15d6a6c6814d4d0d264a772c62fb86d4d41fe` has 270 entries, is not truncated,
+and contains these four ordinary blobs under the `bindings/c#` directory:
+
+- `poc.cs`: 2662 bytes, Git blob 6c4b75e6885008c95cd32bbb83b0717517a7da68.
+- `poc.csproj`: 191 bytes, Git blob 0028a4d5863cc7fdc234dcd23956927a71760652.
+- `run.me`: 35137 bytes, Git blob a7a1f42bb56ba4c982e763da187b9af4aeed1f05.
+- `supranational.blst.cs`: 44635 bytes, Git blob 26d90d30240ef4893ee8b48d0b2bc946bdcda132.
+
+Directory Git tree: 7d1b4a839a49d85806e5c38829038d3287c79a2d.
+The tree has a root go.mod and no nested go.mod on this path. This is public
+Git metadata, not an observation of the private hosted module zip. None of
+these C# sources was fetched, copied into this repository, compiled or executed.
+Official metadata endpoint:
+https://api.github.com/repos/supranational/blst/git/trees/a3c15d6a6c6814d4d0d264a772c62fb86d4d41fe?recursive=1
+
+Go 1.26.11's `src/cmd/vendor/golang.org/x/mod/module/module.go`, fileNameOK and
+CheckFilePath, explicitly permit `#` in module file names. The fetched source is
+27529 bytes, Git blob 739c13f48fccc9785c1617adcc92c1a55a49083a, SHA-256
+aa2b672b6d0bbc701d46556d7d46399b2ef6ce1fb918687bd067bf8d5efd7741.
+Reference:
+https://github.com/golang/go/blob/go1.26.11/src/cmd/vendor/golang.org/x/mod/module/module.go
+Go 1.26.11 list.go (Git blob 81ac4ebaf9cf688ac30d412cc11497848ec28d65)
+sets the generated test-main file to a cache path, already handled separately
+by this runner. Its test package handling does not establish that augmented
+ordinary GoFiles are necessarily absolute. The successor therefore does not
+relax absolute selected-source handling or infer the hosted failing name.
+
+The Stage1-only private-tree path/read helpers add exactly `#` to the previous
+ASCII character set. They retain rejection of absolute paths, empty components,
+`.`/`..`, backslashes, controls and other unapproved characters, symlink roots,
+files or path components, missing/nonregular files and root escape. The existing
+file/total-byte/file-count/deadline bounds and full-tree hashes remain. Copying
+still verifies every source digest and the resulting full manifest; derived
+baseline/candidate production scope still differs by exactly the two patched
+files. No file or hash is skipped. This is a narrow compatibility repair, not
+an implementation of every filename Go might permit.
+
+The shared Stage0 relative-name validator and all public selected-source and
+license-discovery path rules are unchanged. Private full-tree names are not
+exported: only the existing aggregate manifest SHA, bytes and file count leave
+the temporary workspace. A fixed current_validation enum distinguishes
+module_identity, selected_files, licenses and whole_module_manifests. A new
+command clears the previous validation phase. Unknown phase values or fields
+fail closed; no raw name, private path, source or arbitrary diagnostic is added.
+No filename-hash diagnostic is needed for this change.
+
+Synthetic Python tests cover four `bindings/c#` files with exact counts/digests,
+copy identity, retained public rejection, traversal and absolute/control/unknown
+characters, symlink roots/files/directories, limits, missing files, manifest
+changes, phase sequencing and safe projection. An initial new-test attempt
+used a non-allowlisted synthetic command label and failed export_command_label;
+correcting that test constant did not change runtime logic. Local tests do not
+prove hosted module-zip contents, complete race graphs, successful native builds,
+license clearance or red/green race results. Existing seven-job workflow,
+classifier, scanner, frozen six materials and production dependencies are
+unchanged. Any successor hosted result must be collected as a new run.

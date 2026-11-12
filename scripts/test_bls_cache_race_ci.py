@@ -273,7 +273,7 @@ class RunnerContracts(unittest.TestCase):
         (source / "x.go").write_text("mock")
         for times, reads in (([0, 2], 0), ([0, 0, 2], 1)):
             with mock.patch.object(runner.time, "monotonic", side_effect=times), \
-                 mock.patch.object(base, "read_file", wraps=base.read_file) as read, \
+                 mock.patch.object(runner, "read_tree_file", wraps=runner.read_tree_file) as read, \
                  self.assertRaisesRegex(base.GateError, "source_deadline"):
                 runner.tree_manifest(source, 1)
             self.assertEqual(read.call_count, reads)
@@ -292,6 +292,16 @@ class RunnerContracts(unittest.TestCase):
             self.assertIn("\n  ", printed)
         with self.assertRaises(base.GateError):
             runner.emit_safe({"status": "/private/SENTINEL"}, io.StringIO())
+
+    def test_graph_checkpoints_fixed_validation_phases_in_order(self):
+        for side in runner.SIDES:
+            with mock.patch.object(runner, "command", GraphFake(self.state, self.go)), \
+                 mock.patch.object(runner, "checkpoint", wraps=runner.checkpoint) as check:
+                runner.collect_graph(self.state, side, self.go, {}, self.budget, "prepare")
+            self.assertEqual([c.kwargs["current_validation"] for c in check.call_args_list],
+                             ["module_identity", "selected_files", "licenses", "whole_module_manifests"])
+            public = runner.export_progress(json.loads((self.state / "progress.json").read_text()), None)
+            self.assertEqual(public["current_validation"], "whole_module_manifests")
 
     def test_graph_exact_sides_and_public_safe_metadata(self):
         fake = GraphFake(self.state, self.go)

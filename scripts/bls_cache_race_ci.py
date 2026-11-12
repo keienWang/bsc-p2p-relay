@@ -8,7 +8,7 @@ no local contract result is evidence of Go/native execution or race reproduction
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sys
@@ -38,6 +38,7 @@ MAX_REPORT_BYTES = 4 * 1024 * 1024
 TOOL_LABELS = {"go", "python", "goroot_version", "git", "gcc", "as", "ld", "sudo", "timeout",
                "unshare", "setpriv", "ip", "prlimit", "go-asm", "go-compile", "go-link", "go-cgo"}
 HELPER_PACKAGE = "cmd/test2json"
+VALIDATION_PHASES = {"module_identity", "selected_files", "licenses", "whole_module_manifests"}
 RUNNER_FILES = ("scripts/bls_cache_race_ci.py", "scripts/bls_cache_race_evidence.py",
                 "scripts/bls_stage0_inventory.py", "scripts/scanner_redgreen_ci.py",
                 "scripts/scanner_synthetic_ci.py", "scripts/elf_stack_policy.py", "scripts/bls_metadata_capture.py")
@@ -68,6 +69,32 @@ def tool_hashes(state, paths):
     return result
 
 
+def private_tree_path(value):
+    """Private full-tree names only; never use this for public file records."""
+    require(isinstance(value, str) and value != "", "invalid_private_tree_name")
+    path = PurePosixPath(value)
+    require(not path.is_absolute() and "\\" not in value and
+            all(part not in ("", ".", "..") for part in value.split("/")) and
+            re.fullmatch(r"[A-Za-z0-9_.+@!/#-]+", value), "unsafe_private_tree_name")
+    return path
+
+
+def read_tree_file(root, name):
+    relative = private_tree_path(name)
+    require(root.is_dir() and not root.is_symlink(), "source_root_invalid")
+    path = root
+    for part in relative.parts:
+        path = path / part
+        require(not path.is_symlink(), "source_path_symlink")
+    require(path.is_file(), "missing_private_tree_file")
+    require(path.resolve().is_relative_to(root.resolve()), "private_tree_escape")
+    require(path.stat().st_size <= base.MAX_FILE_BYTES, "oversized_file")
+    with path.open("rb") as handle:
+        data = handle.read(base.MAX_FILE_BYTES + 1)
+    require(len(data) <= base.MAX_FILE_BYTES, "oversized_file")
+    return data
+
+
 def tree_manifest(root, deadline):
     require(root.is_dir() and not root.is_symlink(), "source_root_invalid")
     files, total = {}, 0
@@ -78,8 +105,7 @@ def tree_manifest(root, deadline):
         for name in sorted(names):
             require(time.monotonic() < deadline, "source_deadline")
             relative = str((current / name).relative_to(root))
-            base.relative(relative)
-            data = base.read_file(root, relative)
+            data = read_tree_file(root, relative)
             total += len(data)
             require(total <= MAX_TREE_BYTES and len(files) < MAX_TREE_FILES, "source_tree_limit")
             files[relative] = base.sha(data)
@@ -94,7 +120,7 @@ def copy_tree(source, target, manifest, deadline):
     target.mkdir(mode=0o700)
     for relative, digest in manifest["files"].items():
         require(time.monotonic() < deadline, "source_deadline")
-        data = base.read_file(source, relative)
+        data = read_tree_file(source, relative)
         require(base.sha(data) == digest, "donor_changed_during_copy")
         path = target / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +177,7 @@ def environment(go, state, offline):
 
 def command(state, label, args, env, budget, timeout=90, allow_failure=False, cwd=None):
     require(re.fullmatch(r"[a-z0-9-]+", label), "command_label")
-    checkpoint(state, current_command=label)
+    checkpoint(state, current_command=label, current_validation=None)
     started = time.monotonic()
     separate = label in METADATA_LABELS
     capture = metadata_capture.capture if separate else process.capture
@@ -224,6 +250,7 @@ def collect_graph(state, side, go, env, budget, stage):
     require(len(objects) == len(used) and {m.get("Path") for m in objects} == used, "race_module_inventory")
     sums = base.sum_entries(base.read_file(work, "go.sum").decode())
     modules, roots = {}, {}
+    checkpoint(state, current_validation="module_identity")
     for obj in objects:
         name = obj["Path"]
         if name == base.BLS:
@@ -239,6 +266,7 @@ def collect_graph(state, side, go, env, budget, stage):
     goroot = go.parent.parent
     directories["std"] = {goroot}
     seen, file_count, source_budget = set(), 0, {"bytes": 0}
+    checkpoint(state, current_validation="selected_files")
     for obj in packages:
         require(not obj.get("Error") and not obj.get("DepsErrors") and not obj.get("Incomplete"), "race_package_error")
         name = package_id(obj.get("ImportPath"))
@@ -302,7 +330,9 @@ def collect_graph(state, side, go, env, budget, stage):
     for rec in records:
         require(all(rec["import_map"].get(x, x) == "C" or rec["import_map"].get(x, x) in seen for x in rec["imports"]), "race_import_unresolved")
     all_roots = dict(roots, std=goroot)
+    checkpoint(state, current_validation="licenses")
     licenses = {k: base.found_licenses(all_roots[k], v, source_budget, budget.deadline) for k, v in directories.items()}
+    checkpoint(state, current_validation="whole_module_manifests")
     source_trees = {name: safe_tree(tree_manifest(path, budget.deadline)) for name, path in roots.items()}
     return {"scope": "six_blackbox_race_package_declarations", "side": side, "modules": modules,
             "module_source_trees": source_trees,
@@ -589,7 +619,7 @@ METADATA_LABELS = {"prepare-go-env", "inner-go-env", "inner-links", "inner-route
 
 PROGRESS_KEYS = {"schema", "status", "license_approval", "native_include_closure_proven", "stage", "graphs", "identity",
                  "donor_manifest", "baseline_attempts", "compile_receipts", "binary_identity", "elf", "candidate",
-                 "current_command", "last_command", "command_failure", "current_tool", "helper_graph", "helper_tool"}
+                 "current_command", "last_command", "command_failure", "current_tool", "helper_graph", "helper_tool", "current_validation"}
 
 
 def exact_keys(value, keys):
@@ -731,6 +761,10 @@ def export_progress(value, receipt):
         if key in value:
             require(receipt is not None and value[key] == receipt[key], "export_origin_mismatch")
             result[key] = receipt[key]
+    if "current_validation" in value:
+        phase = value["current_validation"]
+        require(phase is None or isinstance(phase, str) and phase in VALIDATION_PHASES, "export_validation_phase")
+        result["current_validation"] = phase
     if "current_tool" in value:
         require(value["current_tool"] in TOOL_LABELS, "export_tool_label")
         result["current_tool"] = value["current_tool"]
@@ -826,6 +860,8 @@ def checkpoint(state, **updates):
 
 
 SAFE_ERROR_CODES = frozenset({
+    "invalid_private_tree_name", "unsafe_private_tree_name", "missing_private_tree_file",
+    "source_path_symlink", "private_tree_escape", "export_validation_phase",
     'baseline_not_reproduced',
     'cache_consumer_graph_mismatch',
     'capture_reason',
