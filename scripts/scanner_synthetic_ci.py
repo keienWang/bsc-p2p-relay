@@ -7,6 +7,7 @@ run enters a disposable Linux network/PID namespace before compilation/tests.
 There is deliberately no online fallback or broad upstream test selection.
 """
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -112,6 +113,28 @@ def verify_bundle():
     return hashlib.sha256(file_bytes(BUNDLE, "MANIFEST.json")).hexdigest()
 
 
+def normalize_sources(source, state, go, env):
+    # Preserve exact pre-format bytes before the strict, non-simplifying formatter.
+    before_bytes = {p: file_bytes(source, p) for p in CHANGED}
+    before = {p: hashlib.sha256(b).hexdigest() for p, b in before_bytes.items()}
+    for p, data in before_bytes.items():
+        saved = state / "before-gofmt" / p
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_bytes(data)
+    (state / "before-gofmt.json").write_text(json.dumps(before, indent=2) + "\n")
+    gofmt = str(Path(go).with_name("gofmt"))
+    run([gofmt, "-w", *CHANGED], cwd=source, env=env)
+    require(not run([gofmt, "-l", *CHANGED], cwd=source, env=env).strip(), "formatter verification failed")
+    after_bytes = {p: file_bytes(source, p) for p in CHANGED}
+    diff = b"".join(b"".join(difflib.diff_bytes(
+        difflib.unified_diff, before_bytes[p].splitlines(keepends=True),
+        after_bytes[p].splitlines(keepends=True),
+        fromfile=("before/" + p).encode(), tofile=("after/" + p).encode())) for p in CHANGED)
+    (state / "format.diff").write_bytes(diff)
+    print(diff.decode("utf-8", errors="strict"), end="", flush=True)
+    return before, {p: hashlib.sha256(b).hexdigest() for p, b in after_bytes.items()}
+
+
 def prepare(source, state):
     require(sys.platform == "linux" and os.geteuid() != 0, "prepare requires an ordinary Linux user")
     require(not state.exists(), "state directory already exists; do not overwrite an earlier attempt")
@@ -144,14 +167,7 @@ def prepare(source, state):
     tracked = run(["git", "diff", "--name-only"], cwd=source, env=env).splitlines()
     added = run(["git", "ls-files", "--others"], cwd=source, env=env).splitlines()
     require(set(tracked + added) == set(CHANGED), "unexpected changed-source scope")
-    before = hashes(source, CHANGED)
-    # Official formatter only: no -s rewrite, no compiler, no candidate code.
-    gofmt = str(Path(go).with_name("gofmt"))
-    diff = run([gofmt, "-d", *CHANGED], cwd=source, env=env)
-    (state / "format.diff").write_text(diff)
-    run([gofmt, "-w", *CHANGED], cwd=source, env=env)
-    require(not run([gofmt, "-l", *CHANGED], cwd=source, env=env).strip(), "formatter verification failed")
-    after = hashes(source, CHANGED)
+    before, after = normalize_sources(source, state, go, env)
     receipt = {"upstream_commit": UPSTREAM, "bundle_manifest_sha256": manifest_hash,
                "source": str(source), "go": go, "go_version": GO_VERSION,
                "uid": os.getuid(), "gid": os.getgid(), "before_gofmt": before,

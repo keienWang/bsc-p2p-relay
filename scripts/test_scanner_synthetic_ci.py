@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pure Python contract tests. No subprocess, Go or namespace is executed."""
 import copy
+import io
+import hashlib
+from contextlib import redirect_stdout
 import json
 from pathlib import Path
 import unittest
@@ -29,6 +32,59 @@ class ScannerSyntheticContract(unittest.TestCase):
         self.assertIn('module.GoVersion!="1.18"', payload)
         self.assertIn('filepath.Join(e.Temp(),"generic","go.mod")', payload)
         self.assertIn('info.Mode().IsRegular()', payload)
+
+    def test_format_diff_matches_actual_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"; source.mkdir()
+            state = Path(tmp) / "state"; state.mkdir()
+            (source / "x.go").write_bytes(b"package x;\n")
+            def formatter(cmd, **kwargs):
+                self.assertNotIn("-d", cmd)
+                if "-w" in cmd:
+                    (source / "x.go").write_bytes(b"package x\n")
+                return ""
+            stdout = io.StringIO()
+            with patch.object(h, "CHANGED", ("x.go",)), patch.object(h, "run", side_effect=formatter), redirect_stdout(stdout):
+                before, after = h.normalize_sources(source, state, "/bin/go", {})
+            self.assertEqual(stdout.getvalue().encode("utf-8"), (state / "format.diff").read_bytes())
+            self.assertEqual(before, {"x.go": hashlib.sha256(b"package x;\n").hexdigest()})
+            self.assertEqual(after, {"x.go": hashlib.sha256(b"package x\n").hexdigest()})
+            self.assertEqual((state / "before-gofmt/x.go").read_bytes(), b"package x;\n")
+            self.assertEqual((state / "format.diff").read_bytes(),
+                             b"--- before/x.go\n+++ after/x.go\n@@ -1 +1 @@\n-package x;\n+package x\n")
+
+    def test_normalization_command_failures_are_not_ignored(self):
+        for outputs in ([ValueError("syntax error")], [ValueError("write error")],
+                        ["", ValueError("listing error")], ["", "x.go\n"]):
+            with self.subTest(outputs=outputs), tempfile.TemporaryDirectory() as tmp:
+                source = Path(tmp) / "source"; source.mkdir()
+                state = Path(tmp) / "state"; state.mkdir()
+                (source / "x.go").write_bytes(b"package x;\n")
+                with patch.object(h, "CHANGED", ("x.go",)), patch.object(h, "run", side_effect=outputs):
+                    with self.assertRaises(ValueError):
+                        h.normalize_sources(source, state, "/bin/go", {})
+                self.assertTrue((state / "before-gofmt/x.go").exists())
+                self.assertFalse((state / "format.diff").exists())
+                self.assertFalse((state / "prepared.json").exists())
+
+    def test_format_errors_abort_without_receipt(self):
+        for failure in ("syntax error", "write failure"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                source = Path(tmp) / "source"; source.mkdir()
+                state = Path(tmp) / "state"
+                def command(cmd, **kwargs):
+                    if "GOVERSION" in cmd: return h.GO_VERSION
+                    if "rev-parse" in cmd: return h.UPSTREAM
+                    return ""
+                with patch.object(h.os, "geteuid", return_value=1001), \
+                        patch.object(h.shutil, "which", return_value="/bin/go"), \
+                        patch.object(h, "verify_bundle", return_value="digest"), \
+                        patch.object(h, "file_bytes", return_value=json.dumps({"upstream_commit": h.UPSTREAM, "references": []}).encode()), \
+                        patch.object(h, "CHANGED", ()), patch.object(h, "PATCHES", ()), \
+                        patch.object(h, "run", side_effect=command), \
+                        patch.object(h, "normalize_sources", side_effect=ValueError(failure)):
+                    with self.assertRaisesRegex(ValueError, failure): h.prepare(source, state)
+                self.assertFalse((state / "prepared.json").exists())
 
     def test_missing_changed_hash_input_fails(self):
         with self.assertRaises(ValueError):

@@ -115,3 +115,24 @@ After both static fixture corrections, 59 Python tests (46 existing and 13 new
 pure/mock contracts), both documentation checkers, YAML parsing and non-patch
 whitespace checks passed. Go compilation, formatting, module downloads,
 namespace execution and hosted CI remain unexecuted by this preparation step.
+
+## First hosted formatting failure and correction
+
+Candidate `b53d91b2`, run `43238076103`, job `131250739367` stopped at
+`gofmt -d` exit 1 in preparation, before formatting writes, compilation or the
+network namespace. Go 1.26.11 intentionally reports formatting differences as
+exit 1: see [the pinned formatter source](https://github.com/golang/go/blob/go1.26.11/src/cmd/gofmt/gofmt.go)
+(blob `ad6ad636524479053b5609a023c1a69a03f378e8`). The original failure is retained.
+The harness now saves all original bytes and hashes, requires `gofmt -w` exit 0
+without `-s`, then requires successful empty `gofmt -l`. Python generates the
+recorded diff from actual before/after bytes. Every nonzero command still aborts;
+no blanket exit-1 exception or retry conceals a syntax/write failure. A preparation
+receipt is written only after normalization succeeds. Local checks are Python
+and documentation checks only, not a local Go or namespace execution.
+
+The formatter correction passed 62 Python tests (46 existing and 16 new
+pure/mock contracts), both documentation checkers, YAML parsing and non-patch
+whitespace checks. The exact diff bytes are also printed with strict UTF-8
+decoding for the CI log; a captured-output regression matches stdout to
+`format.diff` and checks the exact before/after hashes. These are local mock
+checks, not successful Go formatting or hosted execution evidence.
