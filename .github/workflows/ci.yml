@@ -109,6 +109,32 @@ jobs:
         run: GOBIN="$RUNNER_TEMP/canonical-tools" GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - name: Scan the exact tagged research test graph
         run: '"$RUNNER_TEMP/canonical-tools/govulncheck" -test -tags=canonicalisolation -show=verbose ./internal/canonicalisolation/...'
+  noexecstack_candidate:
+    name: experimental Linux amd64 noexecstack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOENV: 'off'
+      GOTELEMETRY: 'off'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: true
+      - name: Check ELF policy and harness contracts without Go execution
+        run: python3 -m unittest discover -s scripts -p 'test_*noexecstack*.py'
+      - name: Prepare pinned modules before download-disabled comparison
+        timeout-minutes: 3
+        run: go mod download
+      - name: Compare builds and test the exact candidate linker policy
+        timeout-minutes: 12
+        run: bash scripts/run_noexecstack_candidate.sh
   scanner_synthetic:
     name: experimental scanner synthetic regressions
     runs-on: ubuntu-latest
