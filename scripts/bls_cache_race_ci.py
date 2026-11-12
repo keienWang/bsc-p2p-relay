@@ -17,6 +17,7 @@ import time
 
 import bls_stage0_inventory as base
 import bls_cache_race_evidence as events
+import bls_metadata_capture as metadata_capture
 import scanner_redgreen_ci as process
 import scanner_synthetic_ci as isolation
 
@@ -39,7 +40,7 @@ TOOL_LABELS = {"go", "python", "goroot_version", "git", "gcc", "as", "ld", "sudo
 HELPER_PACKAGE = "cmd/test2json"
 RUNNER_FILES = ("scripts/bls_cache_race_ci.py", "scripts/bls_cache_race_evidence.py",
                 "scripts/bls_stage0_inventory.py", "scripts/scanner_redgreen_ci.py",
-                "scripts/scanner_synthetic_ci.py", "scripts/elf_stack_policy.py")
+                "scripts/scanner_synthetic_ci.py", "scripts/elf_stack_policy.py", "scripts/bls_metadata_capture.py")
 
 
 def canonical(value):
@@ -152,22 +153,40 @@ def command(state, label, args, env, budget, timeout=90, allow_failure=False, cw
     require(re.fullmatch(r"[a-z0-9-]+", label), "command_label")
     checkpoint(state, current_command=label)
     started = time.monotonic()
+    separate = label in METADATA_LABELS
+    capture = metadata_capture.capture if separate else process.capture
     try:
-        code, output = process.capture(args, cwd or state / "work", env, state / "logs", label, budget, timeout)
+        code, output = capture(args, cwd or state / "work", env, state / "logs", label, budget, timeout)
     except Exception:
         status_path = state / "logs" / (label + ".json")
         if status_path.exists():
-            status = json.loads(base.read_file(status_path.parent, status_path.name))
-            reason = status.get("reason")
-            require(reason in (None, "timeout", "output_limit", "termination_permission_error"), "capture_reason")
-            digest = hash_file(state / "logs" / (label + ".log"), process.COMMAND_BYTES)
-            require(status.get("bytes") == digest["bytes"] and status.get("sha256") == digest["sha256"], "capture_status_identity")
-            checkpoint(state, command_failure={"label": label, "reason": reason,
-                                               "raw_private_bytes": digest["bytes"], "raw_private_sha256": digest["sha256"]})
+            if separate:
+                status = metadata_capture.read_status(status_path.parent, label)
+                checkpoint(state, command_failure={"label": label, "reason": status["reason"],
+                    "capture_mode": metadata_capture.MODE, "stdout_private": status["stdout_private"],
+                    "stderr_private": status["stderr_private"]})
+            else:
+                status = json.loads(base.read_file(status_path.parent, status_path.name))
+                reason = status.get("reason")
+                require(reason in (None, "timeout", "output_limit", "termination_permission_error"), "capture_reason")
+                digest = hash_file(state / "logs" / (label + ".log"), process.COMMAND_BYTES)
+                require(status.get("bytes") == digest["bytes"] and status.get("sha256") == digest["sha256"], "capture_status_identity")
+                checkpoint(state, command_failure={"label": label, "reason": reason,
+                                                   "raw_private_bytes": digest["bytes"], "raw_private_sha256": digest["sha256"]})
         raise base.GateError("command_capture_failed_" + label) from None
-    receipt = {"exit_code": code, "raw_private_bytes": len(output.encode()),
-               "raw_private_sha256": base.sha(output.encode()),
-               "elapsed_milliseconds": int((time.monotonic() - started) * 1000)}
+    elapsed = int((time.monotonic() - started) * 1000)
+    if separate:
+        status = metadata_capture.read_status(state / "logs", label)
+        require(status["reason"] is None and status["returncode"] == code, "metadata_success_status")
+        parsed_bytes = output.encode("utf-8", errors="strict")
+        require(status["stdout_private"] == {"bytes": len(parsed_bytes), "sha256": base.sha(parsed_bytes)},
+                "metadata_stdout_identity")
+        receipt = {"exit_code": code, "capture_mode": metadata_capture.MODE,
+                   "stdout_private": status["stdout_private"], "stderr_private": status["stderr_private"],
+                   "elapsed_milliseconds": elapsed}
+    else:
+        receipt = {"exit_code": code, "raw_private_bytes": len(output.encode()),
+                   "raw_private_sha256": base.sha(output.encode()), "elapsed_milliseconds": elapsed}
     checkpoint(state, last_command={"label": label, **receipt})
     if not allow_failure:
         require(code == 0, "command_failed_" + label)
@@ -560,6 +579,14 @@ COMMAND_LABELS = {"prepare-go-env", "prepare-pins", "prepare-verify-origin", "pr
     phase + "-" + side + "-" + kind for phase in ("prepare", "inner-pre", "inner-post")
     for side in SIDES for kind in ("graph", "modules")} | {
     side + "-compile" for side in SIDES} | {"baseline-test-" + str(n) for n in range(1, 4)}
+# JSON and exact textual metadata consumers must never see merged stderr.
+METADATA_LABELS = {"prepare-go-env", "inner-go-env", "inner-links", "inner-routes4", "inner-routes6",
+                   "prepare-pins", "prepare-verify-origin",
+                   "prepare-verify-modules", "prepare-test2json-graph", "inner-test2json-graph",
+                   "inner-post-test2json-graph"} | {
+    phase + "-" + side + "-" + kind for phase in ("prepare", "inner-pre", "inner-post")
+    for side in SIDES for kind in ("graph", "modules")}
+
 PROGRESS_KEYS = {"schema", "status", "license_approval", "native_include_closure_proven", "stage", "graphs", "identity",
                  "donor_manifest", "baseline_attempts", "compile_receipts", "binary_identity", "elf", "candidate",
                  "current_command", "last_command", "command_failure", "current_tool", "helper_graph", "helper_tool"}
@@ -579,13 +606,28 @@ def integer(value, minimum, maximum):
     return value
 
 
-def export_receipt(value):
-    exact_keys(value, ("exit_code", "raw_private_bytes", "raw_private_sha256", "elapsed_milliseconds"))
-    integer(value["exit_code"], -255, 255)
-    integer(value["raw_private_bytes"], 0, process.COMMAND_BYTES)
-    digest(value["raw_private_sha256"])
-    integer(value["elapsed_milliseconds"], 0, 1000000)
+def export_stream(value):
+    exact_keys(value, ("bytes", "sha256"))
+    integer(value["bytes"], 0, process.COMMAND_BYTES)
+    digest(value["sha256"])
     return dict(value)
+
+
+def export_receipt(value, separate=False):
+    if separate:
+        exact_keys(value, ("exit_code", "capture_mode", "stdout_private", "stderr_private", "elapsed_milliseconds"))
+        require(value["capture_mode"] == metadata_capture.MODE, "export_capture_mode")
+        stdout, stderr = export_stream(value["stdout_private"]), export_stream(value["stderr_private"])
+        require(stdout["bytes"] + stderr["bytes"] <= process.COMMAND_BYTES, "export_stream_total")
+        result = {"capture_mode": metadata_capture.MODE, "stdout_private": stdout, "stderr_private": stderr}
+    else:
+        exact_keys(value, ("exit_code", "raw_private_bytes", "raw_private_sha256", "elapsed_milliseconds"))
+        integer(value["raw_private_bytes"], 0, process.COMMAND_BYTES)
+        digest(value["raw_private_sha256"])
+        result = {"raw_private_bytes": value["raw_private_bytes"], "raw_private_sha256": value["raw_private_sha256"]}
+    result["exit_code"] = integer(value["exit_code"], -255, 255)
+    result["elapsed_milliseconds"] = integer(value["elapsed_milliseconds"], 0, 1000000)
+    return result
 
 
 def export_semantic(value, baseline):
@@ -709,14 +751,23 @@ def export_progress(value, receipt):
         item = dict(value["last_command"])
         label = item.pop("label", None)
         require(label in COMMAND_LABELS, "export_command_label")
-        result["last_command"] = {"label": label, **export_receipt(item)}
+        result["last_command"] = {"label": label, **export_receipt(item, label in METADATA_LABELS)}
     if "command_failure" in value:
         item = value["command_failure"]
-        exact_keys(item, ("label", "reason", "raw_private_bytes", "raw_private_sha256"))
-        require(item["label"] in COMMAND_LABELS and item["reason"] in (None, "timeout", "output_limit", "termination_permission_error"), "export_command_failure")
-        integer(item["raw_private_bytes"], 0, process.COMMAND_BYTES)
-        digest(item["raw_private_sha256"])
-        result["command_failure"] = dict(item)
+        require(isinstance(item, dict) and item.get("label") in COMMAND_LABELS, "export_command_failure")
+        if item["label"] in METADATA_LABELS:
+            exact_keys(item, ("label", "reason", "capture_mode", "stdout_private", "stderr_private"))
+            require(item["capture_mode"] == metadata_capture.MODE and item["reason"] in metadata_capture.REASONS, "export_command_failure")
+            stdout, stderr = export_stream(item["stdout_private"]), export_stream(item["stderr_private"])
+            require(stdout["bytes"] + stderr["bytes"] <= process.COMMAND_BYTES, "export_stream_total")
+            result["command_failure"] = {"label": item["label"], "reason": item["reason"], "capture_mode": metadata_capture.MODE,
+                                         "stdout_private": stdout, "stderr_private": stderr}
+        else:
+            exact_keys(item, ("label", "reason", "raw_private_bytes", "raw_private_sha256"))
+            require(item["reason"] in (None, "timeout", "output_limit", "termination_permission_error"), "export_command_failure")
+            integer(item["raw_private_bytes"], 0, process.COMMAND_BYTES)
+            digest(item["raw_private_sha256"])
+            result["command_failure"] = dict(item)
     if "baseline_attempts" in value:
         result["baseline_attempts"] = export_attempts(value["baseline_attempts"])
     if "candidate" in value:
@@ -812,6 +863,7 @@ SAFE_ERROR_CODES = frozenset({
     'export_attempt_order',
     'export_attempts',
     'export_candidate_race',
+    'export_capture_mode',
     'export_command_failure',
     'export_command_label',
     'export_compile_failed',
@@ -837,6 +889,7 @@ SAFE_ERROR_CODES = frozenset({
     'export_shape',
     'export_stage',
     'export_status',
+    'export_stream_total',
     'export_success_header',
     'export_test_exit',
     'export_tool_label',
@@ -901,6 +954,17 @@ SAFE_ERROR_CODES = frozenset({
     'material_pin_mismatch',
     'material_scope',
     'material_test_scope',
+    'metadata_budget_exhausted',
+    'metadata_capture_failed',
+    'metadata_label',
+    'metadata_log_exists',
+    'metadata_status_code',
+    'metadata_status_shape',
+    'metadata_stream_identity',
+    'metadata_stream_limit',
+    'metadata_stream_shape',
+    'metadata_success_status',
+    'metadata_stdout_identity',
     'missing_baseline_bls',
     'missing_go',
     'missing_or_symlink_file',

@@ -230,3 +230,88 @@ seven-job workflow and its 25-minute Stage1 limit are unchanged by this repair.
 No local Go/network/build/namespace execution or hosted successor result is
 claimed by its Python tests. The race classifier and frozen six materials are
 unchanged; any additional failure-diagnostic frame categories remain future work.
+
+
+## Second hosted metadata parse failure and split-stream successor
+
+Published research f98, run
+[43296126024 / 131454808930](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43296126024/job/131454808930),
+advanced past initial tool checks but failed at prepare-baseline-graph JSON
+parsing. That command exited 0 after 5046 ms. The then-MERGED private output
+receipt reported 779766 bytes, SHA-256
+bc5e0eb83bcd7fe08eeb3367971f37a42f01920e124711c77f95845c5b723ff6.
+The parser reported invalid_json. No namespace, converter build, BLS test-binary
+compilation or race execution was reached. The private raw input was not
+published and is not reconstructed; no particular offending line or stream is
+claimed as observed.
+
+Preserved hosted log SHA-256:
+a753538d07a7be4410b5601508c8beffbbc50fa65323d9a5d26a41a3cd7e93da.
+The safe failure payload was 627 bytes, SHA-256
+873b18b6ac25138585540d8135f44ec62fe8542b7f29cf8603cd724572097a79.
+An independent REAL PYTHON subprocess reproduced a structural defect: valid JSON
+stdout plus a synthetic stderr diagnostic, exit0, was merged by the old capture
+helper and rejected by the strict JSON parser. Reproduction-log SHA-256:
+04d7a0db63826066a355f6d14d92a0ffd01d99ee73d6e199de36562d31685032.
+This demonstrates the code defect, not the exact contents of the hosted failure.
+The failed hosted attempt is retained and is not rerun or relabeled.
+
+Only Stage1's fixed metadata labels now select the new split capture helper.
+It covers Go JSON metadata, exact go-mod-verify text and read-only network-state
+JSON. Compiler and test-stream capture, the scanner helper and race classifier
+are unchanged. Metadata stdout is parsed in full exactly as before: no filtering
+of `go:` lines, ignored suffixes, relaxed JSON or stderr-as-JSON fallback.
+
+Both pipes are drained under one command deadline, one combined 16 MiB output
+allowance and the same remaining phase budget. Timeout, over-cap output, either
+stream's invalid UTF-8, capture failure and unreaped children fail the gate.
+Nonzero exits cannot become successful metadata. Failure retains bounded private
+prefixes only; process-group TERM/KILL remains bounded, including when a leader
+has exited but a descendant holds a pipe. Selector setup/registration is inside
+the cleanup-protected region.
+
+Metadata receipts explicitly say separate_stdout_stderr and record each private
+stream's saved byte count and SHA. Stdout/stderr content stays temporary and is
+never included in public progress, error text, artifacts or receipts. Public
+projection checks the metadata-label/receipt-shape pairing and the combined byte
+limit. Compiler/test receipts retain their previous merged-stream meaning.
+Python contracts use real Python children for stderr diagnostics/flooding,
+timeouts and descendant cleanup, nonzero exits and invalid UTF-8, with mock
+failure/safe-projection negatives. These are not Go, network, namespace or
+hosted-success evidence. No production dependency, frozen research material,
+existing workflow or previous failed run is changed by this repair.
+
+
+Local test history is retained without overstating its evidence. The first new
+child-cleanup test attempt encountered a /proc disappearance while checking an
+already exiting process. Its initial full temporary log was overwritten during
+local debugging; only the console tail and failure summary remain. The test now
+treats ProcessLookupError like FileNotFoundError when checking that owned child.
+Independent review additionally rejected a 200 ms assumption that included
+Python startup and PID-file creation. Preparation now has a separate bounded
+handshake confirming normal leader exit, the child PID and ready stdout before
+the timeout/group-kill assertion. Preparation failure is a distinct test failure
+with guaranteed cleanup, never an accepted timeout. These corrections do not
+relax the production command deadline or retry until green. The separate-stream
+success receipt also must match the exact in-memory stdout bytes supplied to the
+parser, not merely a matching pair of modified disk log/status files.
+
+
+A Python-delivered interruption (including KeyboardInterrupt) is also marked
+capture failure and triggers bounded process-group cleanup even if its leader
+already exited. A mock contract covers that specific path. This does not promise
+synchronous cleanup under SIGKILL or other uncatchable termination; the outer
+watchdog and disposable runner remain the final boundary. Shared scanner capture
+behavior and all existing time/output limits are unchanged.
+
+
+A later review of the child-lifecycle contract found that its unconditional
+finally cleanup preceded the live-child assertion and could hide a capture that
+failed to kill descendants. The assertion now runs BEFORE fallback cleanup. A
+mutation that replaces capture's group cleanup with a no-op must fail with the
+exact live-child assertion; the test's real finally cleanup still prevents a
+leak on that deliberate failure. The earlier 241-test pass at checkpoint 84d49c9
+is historical evidence, not proof of this strengthened assertion. Its retained
+log SHA-256 is 85560cf835b2992c00811f0ddd0f8b510407db45fb3687478c93438ff6156878.
+The new capture contracts are named test_bls_cache_race_metadata.py so the
+existing Stage1 focused-test glob includes them without any workflow edit.
