@@ -1,0 +1,88 @@
+{
+  "scope": "Patch-only Prysm BLST-cache research and six newly authored public-point blackbox tests; not a complete module, native inventory, or release.",
+  "prysm": {
+    "module": "github.com/prysmaticlabs/prysm/v5",
+    "version": "v5.3.2",
+    "commit": "21e1f7883b88ce39d16263d1cdea70bfdaa4d359",
+    "source_files": [
+      {
+        "path": "crypto/bls/blst/init.go",
+        "url": "https://github.com/OffchainLabs/prysm/blob/21e1f7883b88ce39d16263d1cdea70bfdaa4d359/crypto/bls/blst/init.go",
+        "git_blob_sha1": "cad1cbfda50e7ac7f85f34764866725bbc49f189",
+        "bytes": 730,
+        "sha256": "c12e0b97d011a408e1522543b744a0393b392e00603f6e49799014e31382945c",
+        "evidence": "Unmodified pinned source bytes inspected; only diff context is distributed here."
+      },
+      {
+        "path": "crypto/bls/blst/public_key.go",
+        "url": "https://github.com/OffchainLabs/prysm/blob/21e1f7883b88ce39d16263d1cdea70bfdaa4d359/crypto/bls/blst/public_key.go",
+        "git_blob_sha1": "3f687fb1a9804c4d34cb0924d1475c261e2aec69",
+        "bytes": 3921,
+        "sha256": "0b7acd3b01149637cf0501df26732bb7c0be0e62388f96da1bcd837eac6bba12",
+        "evidence": "Unmodified pinned source bytes inspected; only diff context is distributed here."
+      }
+    ],
+    "license": {
+      "url": "https://github.com/OffchainLabs/prysm/blob/21e1f7883b88ce39d16263d1cdea70bfdaa4d359/LICENSE.md",
+      "git_blob_sha1": "733c072369ca77331f392c40da7404c85c36542c",
+      "bytes": 35142,
+      "sha256": "d62f065830aa3739cc031156b9690805c7b2e811b4a178c8b4acd8725d561c94",
+      "evidence": "Inspected GPL version-3 root text. Existing upstream licensing is not broadened; repository ../../LICENSE supplies GPL version-3 terms, not a byte-identical upstream-license copy."
+    }
+  },
+  "existing_dependency": {
+    "module": "github.com/hashicorp/golang-lru",
+    "version": "v0.5.5-0.20210104140557-80c98217689d",
+    "commit": "80c98217689d6df152309d574ccc682b21dc802c",
+    "api_used": [
+      "lru.New",
+      "Cache.Get",
+      "Cache.Add"
+    ],
+    "license": "MPL-2.0",
+    "license_url": "https://github.com/hashicorp/golang-lru/blob/80c98217689d6df152309d574ccc682b21dc802c/LICENSE",
+    "implementation_copied": false,
+    "scope": "Patch imports the existing dependency API; this directory contains neither Hashicorp implementation nor a dependency vendoring tree."
+  },
+  "public_point": {
+    "curve": "BLS12-381",
+    "group": "G1",
+    "coordinate_source": {
+      "url": "https://github.com/herumi/bls-eth-go-binary/blob/ecb2d6d6d613faa5de749699432721b8342a1798/bls/bls_test.go#L551-L565",
+      "blob_sha1": "a46e321f435d2eda901b021453853f2c0bd0a405",
+      "sha256": "ab9bf11b41670fd00721150e8a6af6e3aa3eeabd6fe586bf56da34e288a7c72d",
+      "bytes": 16224,
+      "x": "17f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb",
+      "y": "08b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1",
+      "evidence": "Inspected Herumi source states public affine gen1 coordinates. Its referenced .dat file was not inspected; no Herumi implementation or vector file is copied."
+    },
+    "derived_seed": {
+      "curve": "BLS12-381",
+      "group": "G1",
+      "encoding": "48-byte compressed encoding derived from the inspected affine coordinates using the BLS compression flags/sign rule",
+      "hex": "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb",
+      "bytes": 48,
+      "sha256": "7ccf478a431837728dcec3461f4f53b8749cdc4e03496dcaed459dea82b82eb8"
+    },
+    "derivation": {
+      "public_parameter_hex": "-0xd201000000010000",
+      "formulas": [
+        "r = u^4 - u^2 + 1",
+        "q = (u-1)^2*r/3 + u",
+        "y^2 = x^3 + 4 over F_q"
+      ],
+      "encoding_rule": "48-byte big-endian x with compression bit 0x80 and larger-y sort bit 0x20; these source coordinates use the smaller y, so the sort bit is zero.",
+      "classification": "Derived encoding of the cited public coordinates, not a directly inspected upstream compressed-vector record."
+    },
+    "runtime_limit": "Go/BLST seed validation, round-trip, target uniqueness and cache behavior have not been run for these fixtures. No byte equivalence with earlier secret-derived fixtures is claimed."
+  },
+  "future_relay_context": {
+    "main_module": "github.com/keienWang/bsc-p2p-relay",
+    "working_directory": "Verified relay repository root",
+    "prysm": "Separate private local replacements of the fixed upstream module for original-cache and patched-cache sides, each including the same blackbox source.",
+    "required_blst_module": "github.com/supranational/blst",
+    "required_blst_version": "v0.3.17-0.20260401165437-a3c15d6a6c68",
+    "required_blst_commit": "a3c15d6a6c6814d4d0d264a772c62fb86d4d41fe",
+    "status": "Future selected dependency/source graph must be verified; no replacement or module file is prepared here."
+  }
+}

@@ -15,7 +15,7 @@ class StageZeroWorkflow(unittest.TestCase):
 
     def test_only_bounded_metadata_job_is_enabled(self):
         data = (Path(__file__).resolve().parents[1] / '.github/workflows/ci.yml').read_text()
-        job = data.split('  bls_stage0_inventory:\n', 1)[1]
+        job = data.split('  bls_stage0_inventory:\n', 1)[1].split('\n  bls_cache_race:\n', 1)[0]
         self.assertIn('timeout-minutes: 12', job)
         self.assertIn('timeout-minutes: 11', job)
         self.assertEqual(job.count('cache: false'), 1)

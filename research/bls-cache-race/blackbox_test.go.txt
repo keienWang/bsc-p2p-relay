@@ -1,0 +1,250 @@
+//go:build ((linux && amd64) || (linux && arm64) || (darwin && amd64) || (darwin && arm64) || (windows && amd64)) && !blst_disabled
+
+// SPDX-License-Identifier: GPL-3.0-or-later
+// These are NEW, UNRUN public-point-only regression test proposals.
+// No transactions, accounts, random secrets, network calls or signatures are used.
+package cachepatchtests
+
+import (
+	"bytes"
+	"encoding/hex"
+	"fmt"
+	"math/bits"
+	"sync"
+	"testing"
+
+	"github.com/prysmaticlabs/prysm/v5/crypto/bls/blst"
+)
+
+// Public BLS12-381 G1 generator encoding. Coordinate-source provenance and
+// the derived compressed bytes are recorded separately in PROVENANCE.json.
+// Parsing this seed once may warm only the generator, never a target fixture.
+const fixtureGeneratorHex = "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+
+var fixtureGeneratorOnce sync.Once
+var fixtureGenerator *blst.PublicKey
+var fixtureGeneratorErr error
+var fixtureSeenMu sync.Mutex
+var fixtureSeenPoints = make(map[string]uint64)
+
+func fixturePublicKey(t *testing.T, multiple uint64) []byte {
+	t.Helper()
+	// A public integer coefficient, not a key object. All existing fixtures are
+	// 1001..9008; reject 0/1 so no returned target is the parsed seed itself.
+	if multiple < 2 || multiple > 10000 {
+		t.Fatal("public fixture coefficient must be 2..10000")
+	}
+	fixtureGeneratorOnce.Do(func() {
+		raw, err := hex.DecodeString(fixtureGeneratorHex)
+		if err != nil {
+			fixtureGeneratorErr = err
+			return
+		}
+		parsed, err := blst.PublicKeyFromBytes(raw)
+		if err != nil {
+			fixtureGeneratorErr = err
+			return
+		}
+		point, ok := parsed.(*blst.PublicKey)
+		if !ok || !bytes.Equal(parsed.Marshal(), raw) {
+			fixtureGeneratorErr = fmt.Errorf("unexpected public generator type or encoding")
+			return
+		}
+		fixtureGenerator = point
+	})
+	if fixtureGeneratorErr != nil {
+		t.Fatal(fixtureGeneratorErr)
+	}
+	if fixtureGenerator == nil {
+		t.Fatal("public generator initialization did not complete")
+	}
+	// Left-to-right addition: processed prefix k -> 2k (+1 for a set bit).
+	// Every receiver is a local copy; the once-initialized seed stays immutable.
+	point := fixtureGenerator.Copy()
+	for bit := bits.Len64(multiple) - 2; bit >= 0; bit-- {
+		point.Aggregate(point.Copy())
+		if multiple&(uint64(1)<<uint(bit)) != 0 {
+			point.Aggregate(fixtureGenerator)
+		}
+	}
+	// Marshal and byte comparisons do not insert targets into the parsing cache.
+	raw := point.Marshal()
+	if len(raw) != 48 || bytes.Equal(raw, fixtureGenerator.Marshal()) {
+		t.Fatal("target must have a distinct, 48-byte public encoding")
+	}
+	// This guards fixture construction only, never the cache calls under test.
+	fixtureSeenMu.Lock()
+	previous, seen := fixtureSeenPoints[string(raw)]
+	if !seen {
+		fixtureSeenPoints[string(raw)] = multiple
+	}
+	fixtureSeenMu.Unlock()
+	if seen && previous != multiple {
+		t.Fatal("distinct public coefficients produced duplicate target bytes")
+	}
+	return raw
+}
+func concurrentCalls(t *testing.T, workers int, call func(int) error) {
+	t.Helper()
+	start := make(chan struct{})
+	failures := make(chan error, workers)
+	var done sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		done.Add(1)
+		go func(worker int) {
+			defer done.Done()
+			<-start
+			if err := call(worker); err != nil {
+				failures <- err
+			}
+		}(worker)
+	}
+	close(start)
+	done.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+}
+
+func parseUnchanged(raw []byte) error {
+	key, err := blst.PublicKeyFromBytes(raw)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(key.Marshal(), raw) {
+		return fmt.Errorf("parsed public key changed")
+	}
+	return nil
+}
+
+func TestCacheConcurrentFirstUse(t *testing.T) {
+	// Separate public scalars give 16 fresh keys on the first process run.
+	// Repeated -count runs in one process may be warm; use fresh processes
+	// when specifically validating cold-cache behavior.
+	for round := uint64(0); round < 16; round++ {
+		raw := fixturePublicKey(t, 1001+round)
+		concurrentCalls(t, 32, func(_ int) error {
+			for repeat := 0; repeat < 4; repeat++ {
+				if err := parseUnchanged(raw); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+}
+
+func TestCacheConcurrentDistinctAndMixedKeys(t *testing.T) {
+	keys := make([][]byte, 16)
+	for index := range keys {
+		keys[index] = fixturePublicKey(t, uint64(2001+index))
+	}
+	concurrentCalls(t, len(keys), func(worker int) error {
+		return parseUnchanged(keys[worker])
+	})
+	concurrentCalls(t, 32, func(worker int) error {
+		for repeat := 0; repeat < 16; repeat++ {
+			if err := parseUnchanged(keys[(worker+repeat)%len(keys)]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func TestCacheCopyIsolation(t *testing.T) {
+	raw := fixturePublicKey(t, 3001)
+	otherRaw := fixturePublicKey(t, 3002)
+	other, err := blst.PublicKeyFromBytes(otherRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cold, err := blst.PublicKeyFromBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cold.Aggregate(other)
+	if bytes.Equal(cold.Marshal(), raw) {
+		t.Fatal("fixture mutation did not change the returned key")
+	}
+	hot, err := blst.PublicKeyFromBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyOfHot := hot.Copy()
+	copyOfHot.Aggregate(other)
+	if !bytes.Equal(hot.Marshal(), raw) {
+		t.Fatal("Copy shares mutable point state")
+	}
+	hot.Aggregate(other)
+	if err := parseUnchanged(raw); err != nil {
+		t.Fatalf("returned-key mutation polluted the cache: %v", err)
+	}
+}
+
+func TestCacheConcurrentReturnedKeyMutation(t *testing.T) {
+	raw := fixturePublicKey(t, 4001)
+	other, err := blst.PublicKeyFromBytes(fixturePublicKey(t, 4002))
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrentCalls(t, 32, func(_ int) error {
+		for repeat := 0; repeat < 8; repeat++ {
+			key, err := blst.PublicKeyFromBytes(raw)
+			if err != nil {
+				return err
+			}
+			key.Aggregate(other) // Each worker owns this returned receiver.
+			if bytes.Equal(key.Marshal(), raw) {
+				return fmt.Errorf("fixture mutation did not change the key")
+			}
+			if err := parseUnchanged(raw); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func TestCacheAggregationKeepsCachedInputs(t *testing.T) {
+	keys := [][]byte{
+		fixturePublicKey(t, 5001),
+		fixturePublicKey(t, 5002),
+		fixturePublicKey(t, 5003),
+	}
+	aggregate, err := blst.AggregatePublicKeys(keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := aggregate.Marshal()
+	concurrentCalls(t, 16, func(_ int) error {
+		for repeat := 0; repeat < 8; repeat++ {
+			got, err := blst.AggregatePublicKeys(keys)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(got.Marshal(), expected) {
+				return fmt.Errorf("aggregate changed")
+			}
+			for _, raw := range keys {
+				if err := parseUnchanged(raw); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func TestCacheRejectsInvalidEncodings(t *testing.T) {
+	infinity := make([]byte, 48)
+	infinity[0] = 0xc0
+	for index, raw := range [][]byte{
+		nil, make([]byte, 47), make([]byte, 49), make([]byte, 48), infinity,
+	} {
+		if _, err := blst.PublicKeyFromBytes(raw); err == nil {
+			t.Errorf("invalid fixture %d was accepted", index)
+		}
+	}
+}

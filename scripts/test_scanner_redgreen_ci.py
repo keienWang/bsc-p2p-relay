@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
+import hashlib
 import io
 import os
 from pathlib import Path
@@ -89,8 +90,7 @@ class Capture(unittest.TestCase):
                     self.assertTrue((root/"cmd.log").exists())
                     raw=(root/"cmd.log").read_bytes()
                     self.assertEqual(len(raw),status["bytes"])
-                    if status["reason"] == "timeout":
-                        self.assertTrue(raw.startswith(b"prefix"))
+                    self.assertEqual(hashlib.sha256(raw).hexdigest(), status["sha256"])
                     if status["reason"] == "output_limit":
                         self.assertTrue(raw and len(raw) <= rg.COMMAND_BYTES)
                 else:
@@ -114,9 +114,44 @@ class Capture(unittest.TestCase):
         code,text=self.invoke("print('evidence');raise SystemExit(1)")
         self.assertEqual((code,text),(1,"evidence\n"))
 
-    def test_timeout_preserves_prefix_reaps(self):
+    def test_real_timeout_reaps_even_before_child_can_print(self):
         with self.assertRaisesRegex(ValueError,"timeout"):
             self.invoke("import time;print('prefix',flush=True);time.sleep(20)",timeout=.15)
+
+    def test_received_prefix_survives_timeout_deterministically(self):
+        # Startup scheduling does not promise output within 150 ms. Model one
+        # completed pipe read followed by deadline expiry, without a real child
+        # or any change to the production timeout/capture implementation.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            proc=Mock(pid=4242,returncode=None)
+            proc.stdout.fileno.return_value=123
+            proc.poll.side_effect=lambda: proc.returncode
+            def reaped(**kwargs):
+                proc.returncode=-15
+                return -15
+            proc.wait.side_effect=reaped
+            selector=Mock()
+            selector.get_map.return_value={123: True}
+            selector.select.return_value=[(Mock(fileobj=proc.stdout),rg.selectors.EVENT_READ)]
+            budget=Mock(deadline=10.0,remaining=1024)
+            with patch.object(rg.subprocess,"Popen",return_value=proc), \
+                 patch.object(rg.selectors,"DefaultSelector",return_value=selector), \
+                 patch.object(rg.os,"read",return_value=b"prefix\n"), \
+                 patch.object(rg.time,"monotonic",side_effect=[0.0,0.0,0.0,0.0,1.0]), \
+                 patch.object(rg.os,"killpg") as kill, \
+                 self.assertRaisesRegex(ValueError,"timeout"):
+                rg.capture(["mock-child"],root,{},root,"cmd",budget,.15)
+            raw=(root/"cmd.log").read_bytes()
+            status=json.loads((root/"cmd.json").read_text())
+            self.assertEqual(raw,b"prefix\n")
+            self.assertEqual(status["bytes"],len(raw))
+            self.assertEqual(status["sha256"],hashlib.sha256(raw).hexdigest())
+            self.assertEqual((status["reason"],status["returncode"]),("timeout",-15))
+            self.assertEqual(kill.call_args_list,[call(4242,rg.signal.SIGTERM),call(4242,rg.signal.SIGKILL)])
+            self.assertEqual(proc.wait.call_args_list,[call(timeout=2),call(timeout=3)])
+            proc.stdout.close.assert_called_once()
+            selector.close.assert_called_once()
 
     def test_output_cap_preserves_prefix_reaps(self):
         with patch.object(rg,"COMMAND_BYTES",32), self.assertRaisesRegex(ValueError,"output_limit"):
@@ -282,7 +317,7 @@ class ExportAndWorkflow(unittest.TestCase):
     def test_workflow_appends_comparison_without_replacing_original_tests(self):
         text=(Path(__file__).resolve().parents[1]/".github/workflows/ci.yml").read_text()
         jobs=[line.strip()[:-1] for line in text.splitlines() if line.startswith("  ") and not line.startswith("   ") and line.endswith(":")]
-        self.assertEqual(jobs,["test","official_txpool","canonical_isolation","noexecstack_candidate","scanner_synthetic","bls_stage0_inventory"])
+        self.assertEqual(jobs,["test","official_txpool","canonical_isolation","noexecstack_candidate","scanner_synthetic","bls_stage0_inventory","bls_cache_race"])
         job=text.split("  scanner_synthetic:",1)[1].split("\n  bls_stage0_inventory:",1)[0]
         self.assertIn("timeout-minutes: 15",job)
         first=job.index('scripts/scanner_synthetic_ci.py run')

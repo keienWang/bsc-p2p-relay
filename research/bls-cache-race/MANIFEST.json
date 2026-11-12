@@ -1,0 +1,59 @@
+{
+  "scope": "Six-test public-point blackbox and two-file cache patch only; Go/native NOT RUN. No runner or complete module.",
+  "upstream_commit": "21e1f7883b88ce39d16263d1cdea70bfdaa4d359",
+  "files": [
+    {
+      "path": "0001-use-bounded-synchronous-blst-cache.patch",
+      "bytes": 1750,
+      "sha256": "28ac9e83965e456c05acfc49ddaf59c311616fdd7d24e1db215be98a03bfc6d6",
+      "git_blob_sha1": "12a306935ecfaa8d59d4e1f90f86387ceb1bddd3"
+    },
+    {
+      "path": "NOTICE.md",
+      "bytes": 2256,
+      "sha256": "77295be7229eec1f86101ef7778e9d02c902b71cd20ae883ea03117ba6000927",
+      "git_blob_sha1": "8f14e239a1f7eda0e897a839c4ff68b9dc58706b"
+    },
+    {
+      "path": "README.md",
+      "bytes": 5317,
+      "sha256": "67f5e7c9ddfdf0bdabb99f20ae0e50c2754bb989ef18a7a3ecd838ba2d39a2d4",
+      "git_blob_sha1": "e7810aee95a0342a02bfc55e948c650c14d8b80e"
+    },
+    {
+      "path": "UPSTREAM.json",
+      "bytes": 4977,
+      "sha256": "6b084e4a7b66031f22547fcc1e95d2f87c6ca467d2b6b8784d36465bb48ad219",
+      "git_blob_sha1": "da7ded3d727e9194deadf8d58f8048403d810a80"
+    },
+    {
+      "path": "blackbox_test.go.txt",
+      "bytes": 7056,
+      "sha256": "9f3f83750c7425b6159c27d7cdafc0d17198c9205a5517028448526e9a3236ab",
+      "git_blob_sha1": "726ee87052d719db5c1f04fedcba49728860adaf"
+    }
+  ],
+  "repository_license": {
+    "path": "../../LICENSE",
+    "bytes": 35149,
+    "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "git_blob_sha1": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+  },
+  "blackbox": {
+    "source": "blackbox_test.go.txt",
+    "installed_relative_path": "cachepatchtests/public_key_cache_blackbox_test.go",
+    "package_argument": "github.com/prysmaticlabs/prysm/v5/cachepatchtests",
+    "expected_json_package": "github.com/prysmaticlabs/prysm/v5/cachepatchtests",
+    "expected_tests": [
+      "TestCacheConcurrentFirstUse",
+      "TestCacheConcurrentDistinctAndMixedKeys",
+      "TestCacheCopyIsolation",
+      "TestCacheConcurrentReturnedKeyMutation",
+      "TestCacheAggregationKeepsCachedInputs",
+      "TestCacheRejectsInvalidEncodings"
+    ],
+    "run_expression": "^(TestCacheConcurrentFirstUse|TestCacheConcurrentDistinctAndMixedKeys|TestCacheCopyIsolation|TestCacheConcurrentReturnedKeyMutation|TestCacheAggregationKeepsCachedInputs|TestCacheRejectsInvalidEncodings)$",
+    "status": "NOT RUN"
+  },
+  "manifest_scope": "Every other file in this directory is hashed below; the manifest itself is bound by the repository commit."
+}

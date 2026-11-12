@@ -226,3 +226,31 @@ jobs:
           print('BLS_STAGE0_INVENTORY_RECEIPT ' + json.dumps({'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}, sort_keys=True))
           sys.stdout.write(data.decode('utf-8'))
           PYCODE
+  bls_cache_race:
+    name: experimental BLS cache race comparison
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GOTOOLCHAIN: local
+      GOENV: 'off'
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: false
+      - name: Verify the fixed comparison toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.26.11
+      - name: Check comparison contracts without executing Go packages
+        timeout-minutes: 1
+        run: python3 -m unittest discover -s scripts -p 'test_bls_cache_race*.py'
+      - name: Run only the reviewed isolated BLS comparison
+        timeout-minutes: 23
+        run: python3 scripts/bls_cache_race_ci.py
