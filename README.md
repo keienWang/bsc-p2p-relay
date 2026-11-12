@@ -31,17 +31,31 @@ Use Go **1.26.11 or a newer supported security-patched version** with normal Go 
 
 ```sh
 go mod download
-go test ./...
-go build -o bsc-p2p-relay ./cmd/bsc-relay
-./bsc-p2p-relay --help
+make build
+./bin/bsc-relay --help
 ```
 
-These are commands to run, not a claim that tests have passed. No public-network transaction broadcast success is claimed. A separate [isolated official BSC backend/txpool integration test](integration/officialtxpool/README.md) exercises signed transactions only over loopback P2P, including stateful rejection and reconnects.
+On native Linux/amd64, `make build` and the explicit `make build-linux-amd64`
+entry use the same checked build path: Go 1.26.11, CGO enabled, GOAMD64=v1,
+non-executable GNU_STACK and no writable/executable LOAD segment. Python 3,
+Make, a C/C++ toolchain, `ar`, `file`, `readelf` and Git are required. Run
+`go mod download` first: the checked entry disables module-resolution downloads
+and never downloads a Go toolchain. Unsupported versions/settings fail rather
+than falling back to an unchecked binary. See the [Linux build contract](docs/LINUX_BUILD.md)
+for allowed settings, same-policy tests, failure behavior and current verification limits.
+
+Other targets retain a development `make build` without Linux linker flags or
+this ELF guarantee. Bare `go build` is also an unchecked development path, not
+the recommended Linux artifact build; choosing it does not inherit the policy.
+The broader security-patched Go versions above remain development prerequisites,
+not an assertion that this narrowly qualified build entry supports every version.
+
+These are commands to run, not a claim that the new delivery integration has passed. No public-network transaction broadcast success is claimed. A separate [isolated official BSC backend/txpool integration test](integration/officialtxpool/README.md) exercises signed transactions only over loopback P2P, including stateful rejection and reconnects.
 
 ## Run
 
 ```sh
-./bsc-p2p-relay --network mainnet
+./bin/bsc-relay --network mainnet
 ```
 
 Defaults:
@@ -54,8 +68,8 @@ Defaults:
 Use `--no-discovery` to disable discovery and repeat `--peer` to supply static enode URLs:
 
 ```sh
-./bsc-p2p-relay --network mainnet --no-discovery --peer 'enode://PUBLIC_KEY@HOST:PORT'
-./bsc-p2p-relay --network testnet --no-discovery --peer 'enode://PUBLIC_KEY@HOST:PORT'
+./bin/bsc-relay --network mainnet --no-discovery --peer 'enode://PUBLIC_KEY@HOST:PORT'
+./bin/bsc-relay --network testnet --no-discovery --peer 'enode://PUBLIC_KEY@HOST:PORT'
 ```
 
 Replace those illustrative enode values with actual peers. Testnet requires explicit peers; it does not use mainnet bootnodes. Network selection determines chain ID: mainnet 56 or testnet 97. Use `--help` for the complete implemented flags.

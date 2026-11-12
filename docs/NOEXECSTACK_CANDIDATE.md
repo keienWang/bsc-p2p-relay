@@ -1,10 +1,19 @@
 # Linux/amd64 non-executable-stack research candidate
 
-Status: the first hosted candidate run stopped at an incorrect buildinfo
-assertion, after initial ELF inspection but before functional regressions. The
-corrected metadata contract still needs a complete hosted run. Default build
-flags, the existing four CI jobs, dependencies, prebuilt archives and runtime
-code are unchanged.
+Historical research outcome: the first hosted attempt failed at the buildinfo
+assertion, as retained below. The corrected research revision
+`b8a6fa80dcbd05b432b7aa127e87d31ddfad5165` subsequently passed all five jobs in
+[run 43250728200](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43250728200).
+Its [recorded artifacts and exercised paths](LINUX_BUILD.md#prior-research-result-not-this-delivery-candidates-result)
+are not a qualification of the separate formal delivery integration.
+
+The plan, budgets and unchanged-default statements below describe that
+**research-only tree** `292f8e2030cd23965714a7c6301cd2e342b9d7cb`: default build
+flags, the other four CI jobs, dependencies, archives and runtime were unchanged
+there. The new [checked Linux build candidate](LINUX_BUILD.md) changes the
+recommended Linux build/default-CI path and adds alternate-graph same-policy
+testing; it still needs its own hosted validation. The earlier failed attempt
+has not been relabeled as successful.
 
 ## Planned scope and budget
 
@@ -194,9 +203,10 @@ files or complete the native distribution review.
 
 Local Python tests use synthetic ELF bytes and mocked tools, including failures,
 unsupported/truncated inputs, executable permissions, timeouts and hash drift.
-The Go test source and API relationships can be statically reviewed, but require
-real hosted compilation/execution before they can be called passing. A successful
-candidate run would establish only the recorded artifacts and exercised paths.
+At proposal time, static review of the Go fixture and API relationships did not
+establish execution success. The later corrected research run supplied that
+narrow hosted evidence; it establishes only its recorded artifacts and exercised
+paths, not the separate formal delivery candidate's result.
 It would not repair the prebuilt archive's missing annotation, prove every
 native path safe under non-executable stack policy, or close other production
 gates. No execution result is promised when a resource deadline is reached.

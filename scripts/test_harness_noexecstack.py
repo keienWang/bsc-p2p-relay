@@ -325,7 +325,7 @@ class HarnessNoexecstackTest(unittest.TestCase):
         workflow = (candidate.ROOT / '.github/workflows/ci.yml').read_text()
         old, rest = workflow.split('  noexecstack_candidate:\n')
         job, scanner = rest.split('  scanner_synthetic:\n', 1)
-        self.assertIn('go build -trimpath -buildvcs=false ./cmd/bsc-relay', old)
+        self.assertIn('python3 scripts/linux_build.py build-linux-amd64 --output bsc-relay', old)
         self.assertNotIn(candidate.LINK_POLICY, old)
         for text in ('runs-on: ubuntu-24.04', 'timeout-minutes: 15', "go-version: '1.26.11'",
                      "test_*noexecstack*.py", 'timeout-minutes: 3', 'run: go mod download',

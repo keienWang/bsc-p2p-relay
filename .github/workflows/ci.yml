@@ -21,8 +21,12 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
-      - run: go test -race -count=1 ./...
-      - run: go build -trimpath -buildvcs=false ./cmd/bsc-relay
+      - name: Test the default graph with the qualified linker policy
+        timeout-minutes: 6
+        run: python3 scripts/linux_build.py race
+      - name: Build and check the Linux delivery artifact
+        timeout-minutes: 4
+        run: python3 scripts/linux_build.py build-linux-amd64 --output bsc-relay
       - name: Inspect the built relay without executing it
         timeout-minutes: 1
         run: bash scripts/collect_binary_metadata.sh
@@ -52,8 +56,12 @@ jobs:
         run: python3 scripts/check_runtime_dependencies.py
       - name: Vet the tagged relay
         run: go vet ./internal/relay
-      - name: Test official txpool interoperability
-        run: go test -race -count=1 -timeout=180s ./internal/relay
+      - name: Prepare the tagged modules before download-disabled tests
+        timeout-minutes: 3
+        run: go mod download
+      - name: Check and test the entire official txpool relay package
+        timeout-minutes: 8
+        run: python3 scripts/linux_build.py official-test
       - name: Install the pinned scanner independently
         run: GOBIN="$RUNNER_TEMP/officialpool-tools" GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - name: Scan the tagged integration test graph

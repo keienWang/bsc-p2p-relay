@@ -137,52 +137,146 @@ class Capture(unittest.TestCase):
             self.invoke("print('x'*1000)",budget=rg.Budget(limit=16))
 
 
-class ExportAndWorkflow(unittest.TestCase):
-    def evidence(self, root):
-        for name in rg.REQUIRED_EXPORT:
-            (root/name).write_text("test2json exact UTF-8: \u4e2d\n")
 
-    def test_export_exact_roundtrip_and_allowlist(self):
+def framework_line(value, duration=False):
+    phase = "2.69244ms for" if duration else "starting"
+    return ("    invoke.go:205: "+phase+" GOROOT= GOPATH=/fixture/modcache GO111MODULE=on "
+            +"GOPROXY=file:///fixture/modproxy "+value
+            +' go list -f "{{context.GOARCH}} {{context.Compiler}}" -- unsafe\n')
+
+
+def with_framework(events, value):
+    output=[]
+    for e in events:
+        output.append(e)
+        if e["Action"]=="run" and e.get("Test") in {rg.CANCEL,rg.TRACE+"/ordinary",rg.TRACE+"/tests"}:
+            for duration in (False,True):
+                output.append({"Action":"output","Package":rg.PACKAGE,"Test":e["Test"],
+                               "Output":framework_line(value,duration)})
+    return output
+
+
+class FrameworkDiagnostics(unittest.TestCase):
+    def test_observed_shapes_and_masked_semantics(self):
+        for value in ("PUBLIC_PLACEHOLDER","***"):
+            outcome=rg.classify(encode(with_framework(stream(True),value)),1,True)
+            self.assertEqual(outcome["framework_diagnostic_counts"][rg.CANCEL],2)
+            self.assertNotIn(value,json.dumps(outcome))
+        for name in (rg.CANCEL,rg.TRACE+"/ordinary",rg.TRACE+"/tests"):
+            tests=name!=rg.TRACE+"/ordinary"
+            fields=rg.JSON_FIELDS_TEST if tests else rg.JSON_FIELDS_ORDINARY
+            suffix="/entry/x" if name==rg.CANCEL else "/entry/p"
+            line=("    invoke.go:205: starting GOROOT= GOPATH=/fixture/modcache GO111MODULE=on GOPROXY=file:///fixture/modproxy *** go list -e -json="
+                  +fields+" -compiled=true -test="+str(tests).lower()
+                  +" -export=false -deps=true -find=false -buildvcs=false -pgo=off -- /fixture"+suffix)
+            self.assertTrue(rg.framework_diagnostic(line,name))
+
+    def test_unknown_and_extra_assertions_still_fail(self):
+        for bad in (
+            "    invoke.go:205: unknown fatal diagnostic\n",
+            "    invoke.go:206: starting GOROOT= GOPATH=x GO111MODULE=on GOPROXY=file://x go list -e -f {{context.ReleaseTags}} -- unsafe\n",
+            "    unknown.go:9: extra assertion\n",
+            framework_line("x").rstrip()+"\n    unknown.go:9: extra assertion\n",
+        ):
+            events=with_framework(stream(True),"***")
+            events.insert(2,{"Action":"output","Package":rg.PACKAGE,"Test":rg.CANCEL,"Output":bad})
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                rg.classify(encode(events),1,True)
+
+    def test_valid_framework_does_not_hide_wrong_marker(self):
+        events=with_framework(stream(True),"***")
+        for e in events:
+            if e["Action"]=="output" and "callgraph_error_test.go:" in e["Output"]:
+                e["Output"]="    callgraph_error_test.go:61: wrong failure\n"
+        with self.assertRaises(ValueError):rg.classify(encode(events),1,True)
+
+
+class ExportAndWorkflow(unittest.TestCase):
+    CANARY = "DO_NOT_EXPORT_ENV_CANARY"
+
+    def evidence(self, root):
+        identity = {"upstream": rg.base.UPSTREAM, "go": rg.base.GO_VERSION,
+                    "test_hashes": {p:"0"*64 for p in rg.TEST_FILES},
+                    "patched_source": {p:"1"*64 for p in rg.base.CHANGED},
+                    "compiled_package_binaries": {"baseline":"2"*64,"patched":"3"*64}}
+        (root/"identity-before.json").write_text(json.dumps(identity))
+        after=dict(identity, post_execution_binaries=identity["compiled_package_binaries"], environment=self.CANARY)
+        (root/"result.json").write_text(json.dumps(after))
+        isolation={"uid":1001,"groups":[],"network_namespace":self.CANARY,
+                   "host_network_namespace":"different","verified_down_loopback_and_empty_routes":True,
+                   "status":{k:"0" for k in ("CapInh","CapPrm","CapEff","CapBnd","CapAmb")}}
+        isolation["status"]["NoNewPrivs"]="1"
+        (root/"isolation.json").write_text(json.dumps(isolation))
+        for side in ("baseline","patched"):
+            for phase in ("compile","tests"):
+                log="" if phase=="compile" else encode(with_framework(stream(side=="baseline"),self.CANARY))
+                label=side+"-"+phase
+                raw=log.encode()
+                (root/(label+".log")).write_bytes(raw)
+                (root/(label+".json")).write_text(json.dumps({
+                    "command":[self.CANARY],"reason":None,"returncode":int(side=="baseline" and phase=="tests"),
+                    "bytes":len(raw),"sha256":rg.hashlib.sha256(raw).hexdigest()}))
+
+    def test_semantic_export_exact_hash_and_no_raw_canary(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);self.evidence(root)
-            (root/"private-source.go").write_text("must not export")
+            (root/"outer.log").write_text(self.CANARY)
             sink=io.StringIO();result=rg.export_evidence(root,True,sink)
-            records=[json.loads(s) for s in sink.getvalue().splitlines()]
-            self.assertEqual({r["evidence_file"] for r in records},rg.REQUIRED_EXPORT)
+            self.assertNotIn(self.CANARY,sink.getvalue())
+            self.assertNotIn("invoke.go",sink.getvalue())
+            self.assertNotIn('"Output"',sink.getvalue())
+            record=json.loads(sink.getvalue())
+            self.assertEqual(record["evidence_format"],rg.SAFE_FORMAT)
+            payload=json.dumps(record["payload"],sort_keys=True,separators=(",",":"),ensure_ascii=True).encode()
+            self.assertEqual(len(payload),record["sanitized_bytes"])
+            self.assertEqual(rg.hashlib.sha256(payload).hexdigest(),record["sanitized_sha256"])
             self.assertEqual(result["exported_bytes"],len(sink.getvalue().encode()))
-            for record in records:
-                raw=(root/record["evidence_file"]).read_bytes()
-                self.assertTrue(record["complete"])
-                self.assertEqual(record["text"].encode(),raw)
-                self.assertEqual(record["sha256"],rg.hashlib.sha256(raw).hexdigest())
+            for side in ("baseline","patched"):
+                self.assertTrue(record["payload"]["tests"][side]["classification"]["valid"])
+                self.assertIn("raw_local_sha256",record["payload"]["tests"][side]["execution"])
 
-    def test_export_missing_or_truncated_success_is_failure(self):
+    def test_missing_or_output_cap_is_not_success(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
-            with self.assertRaisesRegex(ValueError,"missing or truncated"):
-                rg.export_evidence(root,True,io.StringIO())
+            with self.assertRaises(ValueError):rg.export_evidence(root,True,io.StringIO())
             self.evidence(root)
-            (root/"baseline-tests.log").write_text('"'*5000)
-            with self.assertRaisesRegex(ValueError,"missing or truncated"):
+            with self.assertRaisesRegex(ValueError,"output limit"):
                 rg.export_evidence(root,True,io.StringIO(),limit=3072)
 
-    def test_export_failure_prefix_bounded(self):
+    def test_invalid_output_exports_only_safe_failure(self):
         with tempfile.TemporaryDirectory() as td:
-            root=Path(td);(root/"baseline-tests.log").write_text("prefix"*5000)
-            sink=io.StringIO();result=rg.export_evidence(root,False,sink,limit=3072)
-            self.assertLessEqual(len(sink.getvalue().encode()),1024)
-            self.assertEqual(result["incomplete_files"],["baseline-tests.log"])
-            record=json.loads(sink.getvalue());self.assertFalse(record["complete"])
-            self.assertTrue(record["text"].startswith("prefix"))
+            root=Path(td);self.evidence(root)
+            events=stream(True)
+            for e in events:
+                if e.get("Test")==rg.CANCEL and e["Action"]=="output":
+                    e["Output"]="    unknown.go:99: "+self.CANARY+"\n"
+            raw=encode(events).encode()
+            (root/"baseline-tests.log").write_bytes(raw)
+            status=json.loads((root/"baseline-tests.json").read_text())
+            status.update(bytes=len(raw),sha256=rg.hashlib.sha256(raw).hexdigest())
+            (root/"baseline-tests.json").write_text(json.dumps(status))
+            sink=io.StringIO();rg.export_evidence(root,False,sink)
+            self.assertNotIn(self.CANARY,sink.getvalue())
+            classification=json.loads(sink.getvalue())["payload"]["tests"]["baseline"]["classification"]
+            self.assertEqual(classification,{"valid":False,"error_code":"test_evidence_rejected"})
+            with self.assertRaises(ValueError):rg.export_evidence(root,True,io.StringIO())
+
+    def test_masked_copy_cannot_claim_original_log_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);self.evidence(root)
+            p=root/"baseline-tests.log"
+            p.write_text(p.read_text().replace(self.CANARY,"***"))
+            with self.assertRaisesRegex(ValueError,"digest mismatch"):
+                rg.export_evidence(root,False,io.StringIO())
 
     def test_export_rejects_symlink_and_oversize(self):
         with tempfile.TemporaryDirectory() as td:
-            root=Path(td);outside=root/"not-allowlisted";outside.write_text("secret")
+            root=Path(td);outside=root/"not-allowlisted";outside.write_text(self.CANARY)
             p=root/"result.json";p.symlink_to(outside)
-            with self.assertRaisesRegex(ValueError,"unsafe evidence"):
+            with self.assertRaisesRegex(ValueError,"unsafe"):
                 rg.export_evidence(root,False,io.StringIO())
             p.unlink();p.write_text("x"*100)
-            with patch.object(rg,"COMMAND_BYTES",32),self.assertRaisesRegex(ValueError,"oversized evidence"):
+            with patch.object(rg,"COMMAND_BYTES",32),self.assertRaisesRegex(ValueError,"oversized"):
                 rg.export_evidence(root,False,io.StringIO())
 
     def test_workflow_appends_comparison_without_replacing_original_tests(self):
@@ -199,6 +293,7 @@ class ExportAndWorkflow(unittest.TestCase):
         self.assertNotIn('continue-on-error',job)
         self.assertNotIn('if: always()',job)
         self.assertEqual(len(rg.base.TESTS['./internal/vulncheck'])+len(rg.base.TESTS['./internal/scan']),11)
+
 
 
 if __name__ == "__main__":

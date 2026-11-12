@@ -24,7 +24,7 @@ Baseline acceptance is intentionally narrow:
 - The tests subcase fails with its single exact assertion: no ordered TestOnlyTarget -> wrapper -> Target witness.
 - The trace parent and package fail accordingly; the process exits 1.
 
-The patched side must pass all four named test/subtest events and the package, with process exit 0. The parser requires exact names, terminals and package identity; excludes missing/duplicate/unselected/skip events and any other located assertion. Panic, timeout, data race, compile failure or arbitrary non-JSON error are never accepted as baseline red. The previous formatting failure is not algorithm-red evidence.
+The patched side must pass all four named test/subtest events and the package, with process exit 0. The parser requires exact names, terminals and package identity; excludes missing/duplicate/unselected/skip events and any other located assertion, except the narrowly recognized pinned framework diagnostics described below. Panic, timeout, data race, compile failure or arbitrary non-JSON error are never accepted as baseline red. The previous formatting failure is not algorithm-red evidence.
 
 ## Bounded resources and failure evidence
 
@@ -44,16 +44,32 @@ Python-only command:
 Raw local log SHA256:
 6c86d41a52b618e1ccf5a7abbe710c7325310263d2930b6b7fc1eb266e44b22f
 
-No Go command, real namespace, scanner binary, old-red/new-green run, DB/network access or hosted CI was executed for this batch. Both required Go binaries remain **uncompiled in this batch**. These Python results establish harness fault contracts only, not the algorithm comparison or a production security claim.
+No Go command, real namespace, scanner binary, old-red/new-green run, DB/network access or hosted CI was executed for this batch. At that initial local implementation checkpoint both Go binaries were uncompiled; the later hosted compile outcome and failure are recorded below. No Go binary was rebuilt or rerun locally for the subsequent classifier/export repair. These Python results establish harness fault contracts only, not the algorithm comparison or a production security claim.
 
 ## Hosted evidence export and integration
 
 The added comparison step has a 9-minute timeout; the namespace retains its 480-second watchdog. The existing job remains at 15 minutes. The cumulative cold-run budget is NOT proven; exhaustion must fail rather than weaken tests or extend coverage claims.
 
-After either comparison success or failure, a fixed allowlist exports only isolation/receipt/status files and test/compile logs. It never traverses or dumps the baseline clone. Each stdout JSON record names the file and includes original byte length, SHA256, an explicit completeness flag and exact UTF-8 text (JSON-escaped, reversible). Missing/truncated required success evidence fails the outer run. Failures can export marked prefixes; those are not complete logs. Binary files and upstream source are never exported.
+The original raw-text export design is superseded by semantic evidence schema 2. It never exports arbitrary test Output, command argv/environment, local raw logs, or exception messages. Runtime-local raw logs remain bounded files in the disposable attempt directory and are not uploaded or encoded for transport.
 
-Export is capped at 32 MiB, reserving 2 KiB for the final outer receipt and bounded error line. Unexpected oversized/symlink files fail closed. The final outer_result record distinguishes comparison_passed from passed: an inner success with failed export is NOT a successful job. The corresponding outer-result.json is written only after export is attempted. Platform-level job termination can still prevent final output; absence of the final receipt is never success.
+The stdout envelope contains only fixed-name actions/tests, fixed assertion codes, per-test framework-diagnostic counts, validated exit/status fields, source/test/binary hashes, and normalized isolation booleans. A pre-execution identity file is saved after both binaries compile, so a baseline classification failure can still report their identities. A successful comparison requires matching before/after identities and both exact classifications.
 
-The original 27-test Python-only evidence above is retained as historical scope. The integration adds exporter/workflow contracts and reruns the complete Python suite; the final count/hash are recorded below. No local Go compilation, real namespace, old-red/new-green run or hosted execution is claimed for this integration.
+raw_local_bytes/raw_local_sha256 describe the runtime-local input only. sanitized_bytes/sanitized_sha256 bind canonical JSON for the independently exported semantic payload. The two representations are intentionally different; the safe payload is NOT original test2json. A locally changed/masked log whose bytes disagree with its recorded status is rejected rather than claimed original. Consumers must independently verify the received sanitized payload digest; hosted masking can still alter any text and must never be presumed absent.
 
-Final integration validation: complete Python suite **118 tests PASS**, 11.225 seconds; raw log SHA256 f74316afeff1963a2f5175c794ea30d32f646e089a07b1b4da12c0c70e5d5fd3. Both operations/stats documentation checkers, bash -n for all five scripts/*.sh files, and git diff --check passed. Earlier logs remain preserved. These are lightweight checks only; hosted namespace/Go execution remains pending.
+The semantic export is capped at 32 MiB with a 2 KiB final/error reserve. Oversized, symlink or invalid evidence fails closed; there is no raw-content fallback. The final outer_result distinguishes comparison_passed from passed: successful comparison with rejected export is a failed job. Errors use fixed codes/messages, not arbitrary exception strings. Platform-level termination can prevent the final receipt; its absence is never success.
+
+The original 27-test Python-only evidence above is retained as historical scope. The integration adds exporter/workflow contracts and reruns the complete Python suite; the final count/hash are recorded below. At that initial integration checkpoint no local Go compilation, real namespace or hosted execution was claimed. The later first hosted attempt is recorded below; it did not complete old-red/new-green.
+
+Final integration validation: complete Python suite **118 tests PASS**, 11.225 seconds; raw log SHA256 f74316afeff1963a2f5175c794ea30d32f646e089a07b1b4da12c0c70e5d5fd3. Both operations/stats documentation checkers, bash -n for all five scripts/*.sh files, and git diff --check passed. Earlier logs remain preserved. These are lightweight checks only; hosted namespace/Go execution was pending at that checkpoint (see subsequent failure below).
+
+## First hosted comparison failure and narrow repair
+
+The first hosted attempt (run 43252075446, scanner job 131300261802, public b4e94192) compiled both binaries successfully. Baseline cancellation and test-only trace produced their exact expected assertions and failure actions; the ordinary control passed. The old classifier nevertheless rejected 18 normal invoke.go:205 verbose diagnostics as additional assertions. The patched binary was NOT executed, and no final successful comparison receipt was produced. This failure remains recorded and is not converted retroactively into a complete old-red/new-green pass.
+
+The hosted baseline log declared 17,243 bytes and SHA256 bd07ae2200acc185f99921fafa70bdbe08825e1e05fc6738e352e51df46b2ffb. Its already available masked transcript has 15,461 bytes and SHA256 683059a583a861865beff5ad1655ecc8e26b75a178603c3556be7edf9190b51e. They are not byte-identical. No hidden values were recovered, reconstructed or encoded around masking.
+
+The repair leaves the five patches and both test files unchanged. It recognizes only the observed invoke.go:205 call-site under pinned x/tools v0.52.0, only in the three loading test contexts, and only complete single-line starting/duration-for forms with the known go-list arguments. Unknown location, command shape, fatal diagnostic or extra assertion still fails. Environment-bearing diagnostic contents are counted then omitted, never included in the semantic payload. A changed dependency/logging format requires explicit review, not a permissive fallback.
+
+Read-only semantic replay of the existing masked copy recognized 6+6+6 framework diagnostics, the two unique assertion codes and their expected terminals. That is a classifier regression check on visible content, not new Go execution or recovery of original bytes. New Python contracts additionally reject unknown located assertions, wrong target markers, masked-copy/status digest mismatches, raw canary leakage, missing evidence and unsafe files. No Go/network/namespace execution or old-run rerun occurred during this repair.
+
+Repair validation: complete Python suite **122 tests PASS**, 10.969 seconds, raw local log SHA256 1d401fcc4c05111fc3e7bfad208c80c9cd42aaee5904650739c333fc5ad7aaf3. Safe masked-replay result SHA256 cd8292fc348e762e1b9b157e09e79699d0733bc379a64203e28c6e09fab6d9a3. The previous test logs and hosted failure remain unchanged. Operations/stats doc checks, bash -n for all five shell scripts and diff checking are lightweight checks only, not hosted acceptance of the repair.

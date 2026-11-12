@@ -30,6 +30,37 @@ COMMAND_BYTES = 16 * 1024 * 1024
 require = base.require
 
 
+JSON_FIELDS_BASE = "Name,ImportPath,Error,Dir,GoFiles,IgnoredGoFiles,IgnoredOtherFiles,CFiles,CgoFiles,CXXFiles,MFiles,HFiles,FFiles,SFiles,SwigFiles,SwigCXXFiles,SysoFiles,"
+JSON_FIELDS_TEST = JSON_FIELDS_BASE + "TestGoFiles,XTestGoFiles,CompiledGoFiles,Export,DepOnly,Imports,ImportMap,TestImports,XTestImports,Module"
+JSON_FIELDS_ORDINARY = JSON_FIELDS_BASE + "CompiledGoFiles,Export,DepOnly,Imports,ImportMap,Module"
+
+
+def framework_diagnostic(line, name):
+    # Observed call-site/command shapes under pinned x/tools v0.52.0.
+    # Environment text is inspected only for shape, never returned/exported.
+    if name not in {CANCEL, TRACE+"/ordinary", TRACE+"/tests"}:
+        return False
+    m = re.fullmatch(
+        r"\s*invoke\.go:205: (?:starting|[0-9]+(?:\.[0-9]+)?(?:ns|µs|ms|s) for)"
+        r" GOROOT=[^\r\n]* GOPATH=[^\r\n]+ GO111MODULE=(?:on|off)"
+        r" GOPROXY=file://[^\r\n]+ go list (.+)", line)
+    if not m:
+        return False
+    args = m.group(1)
+    if args in {'-f "{{context.GOARCH}} {{context.Compiler}}" -- unsafe',
+                '-e -f {{context.ReleaseTags}} -- unsafe'}:
+        return True
+    tests = name != TRACE+"/ordinary"
+    fields = JSON_FIELDS_TEST if tests else JSON_FIELDS_ORDINARY
+    prefix = ("-e -json="+fields+" -compiled=true -test="+str(tests).lower()
+              +" -export=false -deps=true -find=false -buildvcs=false -pgo=off -- ")
+    if not args.startswith(prefix):
+        return False
+    target = args[len(prefix):]
+    suffix = "/entry/x" if name == CANCEL else "/entry/p"
+    return target.startswith("/") and target.endswith(suffix) and not any(c.isspace() for c in target)
+
+
 def classify(output, code, red):
     """Only the two specific assertion failures constitute expected red."""
     require(code == (1 if red else 0), "unexpected test-process exit")
@@ -38,6 +69,7 @@ def classify(output, code, red):
     )), "panic, timeout or race is not expected red")
     runs, ends, logs = set(), {}, {n: [] for n in NAMES}
     package_start, package_end = 0, []
+    semantic = []
     events = output.splitlines()
     require(bool(events), "empty event stream")
     for line in events:
@@ -72,6 +104,8 @@ def classify(output, code, red):
         else:
             require(action == "output" and isinstance(event.get("Output"), str),
                     "invalid package event")
+        if action != "output":
+            semantic.append({"action": action, "test": name})
     require(runs == set(NAMES) and set(ends) == set(NAMES), "missing exact tests")
     expected = {n: "pass" for n in NAMES}
     if red:
@@ -86,19 +120,23 @@ def classify(output, code, red):
     }
     # An assertion line is identified by its Go source location. Do not accept
     # arbitrary t.Fatal/log output alongside a matching marker.
-    assertions = {}
+    assertions, diagnostics = {}, {}
     for name, chunks in logs.items():
         lines = "".join(chunks).splitlines()
-        located = [s.strip() for s in lines if re.match(r"^\s*\S+\.go:\d+: ", s)]
-        assertions[name] = located
+        framework = [line for line in lines if framework_diagnostic(line, name)]
+        diagnostics[name] = len(framework)
+        located = [line.strip() for line in lines if re.match(r"^\s*\S+\.go:\d+: ", line) and not framework_diagnostic(line, name)]
+        assertions[name] = []
         if red and name in markers:
             filename, message = markers[name]
             require(len(located) == 1 and re.fullmatch(
                 re.escape(filename) + r":\d+: " + re.escape(message), located[0]),
                 "missing/ambiguous exact failure assertion")
+            assertions[name] = ["callgraph_error_not_propagated" if name == CANCEL else "test_only_trace_missing"]
         else:
             require(not located, "unexpected located test message")
-    return {"expected_red": red, "outcomes": ends, "assertions": assertions}
+    return {"expected_red": red, "outcomes": ends, "assertion_codes": assertions,
+            "framework_diagnostic_counts": diagnostics, "semantic_events": semantic}
 
 
 class Budget:
@@ -239,6 +277,11 @@ def inner(source, prepared, attempt):
         cmd([receipt["go"], "test", "-mod=readonly", "-c", "-race", "-o", str(binary),
              "./internal/vulncheck"], name + "-compile", tree, 240)
         binaries[name] = binary_hash(binary)
+    (attempt/"identity-before.json").write_text(json.dumps({
+        "upstream": base.UPSTREAM, "go": base.GO_VERSION,
+        "test_hashes": test_hashes, "patched_source": receipt["executed_source"],
+        "compiled_package_binaries": binaries,
+    }, indent=2)+"\n")
     # Neither side runs unless BOTH exact package test binaries compiled.
     for name, tree in (("baseline", baseline), ("patched", source)):
         command = [receipt["go"], "tool", "test2json", "-t", "-p", PACKAGE,
@@ -267,61 +310,120 @@ def inner(source, prepared, attempt):
 
 
 EXPORT_LIMIT = 32 * 1024 * 1024
-# Named artifacts only. Never walk or export the cloned upstream source tree.
-EXPORT_FILES = (
-    "isolation.json", "result.json",
-    "baseline-compile.json", "patched-compile.json",
-    "baseline-tests.json", "patched-tests.json",
-    "baseline-tests.log", "patched-tests.log",
-    "baseline-compile.log", "patched-compile.log",
-    "links.log", "routes4.log", "routes6.log", "go-version.log",
-    "outer.json", "outer.log",
-)
-REQUIRED_EXPORT = set(EXPORT_FILES[:8])
+SAFE_FORMAT = "allowlisted_semantics_not_raw_test2json"
+
+
+def read_local(attempt, name):
+    path = attempt/name
+    if not path.exists():
+        return None
+    require(path.is_file() and not path.is_symlink(), "unsafe local evidence")
+    require(path.stat().st_size <= COMMAND_BYTES, "oversized local evidence")
+    return path.read_bytes()
+
+
+def digest_map(value, keys):
+    require(isinstance(value, dict) and set(value) == set(keys), "identity keys mismatch")
+    require(all(isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) for v in value.values()),
+            "invalid identity hash")
+    return {k: value[k] for k in sorted(keys)}
+
+
+def safe_identity(value, after=False):
+    require(value.get("upstream") == base.UPSTREAM and value.get("go") == base.GO_VERSION,
+            "identity version mismatch")
+    result = {"upstream": base.UPSTREAM, "go": base.GO_VERSION,
+              "test_hashes": digest_map(value["test_hashes"], TEST_FILES),
+              "patched_source": digest_map(value["patched_source"], base.CHANGED),
+              "binaries": digest_map(value["compiled_package_binaries"], ("baseline", "patched"))}
+    if after:
+        post = digest_map(value["post_execution_binaries"], ("baseline", "patched"))
+        require(post == result["binaries"], "post-execution binary mismatch")
+        result["post_execution_binaries"] = post
+    return result
+
+
+def safe_status(attempt, label):
+    raw = read_local(attempt, label+".json")
+    if raw is None:
+        return None
+    value = json.loads(raw)
+    code, reason = value["returncode"], value["reason"]
+    require(code is None or type(code) is int and -255 <= code <= 255, "invalid exit code")
+    require(reason in {None, "timeout", "output_limit", "termination_permission_error"}, "invalid process reason")
+    result = {"returncode": code, "reason": reason}
+    log = read_local(attempt, label+".log")
+    require(log is not None, "status without local log")
+    require(type(value.get("bytes")) is int and value["bytes"] == len(log)
+            and value.get("sha256") == hashlib.sha256(log).hexdigest(), "local log/status digest mismatch")
+    if log is not None:
+        # Digest of the runtime-local input only. No claim that a separately
+        # masked hosted transcript preserves these bytes.
+        result.update(raw_local_bytes=len(log), raw_local_sha256=hashlib.sha256(log).hexdigest())
+    return result
+
+
+def semantic_evidence(attempt, comparison_passed):
+    payload = {"schema_version": 2, "representation": SAFE_FORMAT,
+               "upstream": base.UPSTREAM, "go": base.GO_VERSION,
+               "compilation": {}, "tests": {}, "isolation": None,
+               "identity_before": None, "identity_after": None}
+    raw = read_local(attempt, "isolation.json")
+    if raw is not None:
+        v = json.loads(raw)
+        caps = ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
+        require(type(v["uid"]) is int and v["uid"] > 0 and v["groups"] == [], "invalid isolation")
+        require(v["status"]["NoNewPrivs"] == "1" and all(int(v["status"][k], 16) == 0 for k in caps),
+                "invalid capability evidence")
+        require(v["network_namespace"] != v["host_network_namespace"]
+                and v["verified_down_loopback_and_empty_routes"] is True, "invalid network evidence")
+        payload["isolation"] = {"nonroot": True, "supplementary_groups": 0, "capabilities": "zero",
+                                "no_new_privileges": True, "network_namespace_replaced": True,
+                                "down_loopback_only": True, "routes_empty": True}
+    for label, after in (("identity-before.json", False), ("result.json", True)):
+        raw = read_local(attempt, label)
+        if raw is not None:
+            value = json.loads(raw)
+            payload["identity_after" if after else "identity_before"] = safe_identity(value, after)
+    for side in ("baseline", "patched"):
+        status = safe_status(attempt, side+"-compile")
+        payload["compilation"][side] = status
+        status = safe_status(attempt, side+"-tests")
+        payload["tests"][side] = {"execution": status, "classification": None}
+        raw = read_local(attempt, side+"-tests.log")
+        if raw is not None and status is not None:
+            try:
+                outcome = classify(raw.decode("utf-8", errors="strict"), status["returncode"], side == "baseline")
+                payload["tests"][side]["classification"] = {"valid": True, **outcome}
+            except (ValueError, KeyError, TypeError, UnicodeError):
+                payload["tests"][side]["classification"] = {"valid": False, "error_code": "test_evidence_rejected"}
+    if comparison_passed:
+        require(payload["isolation"] is not None and payload["identity_before"] is not None
+                and payload["identity_after"] is not None, "missing success identity evidence")
+        for side in ("baseline", "patched"):
+            c, t = payload["compilation"][side], payload["tests"][side]
+            require(c is not None and c["returncode"] == 0 and c["reason"] is None, "compile not successful")
+            require(t["execution"] is not None and t["execution"]["reason"] is None
+                    and t["classification"] is not None and t["classification"]["valid"], "tests not verified")
+        before, after = payload["identity_before"], payload["identity_after"]
+        require(all(before[k] == after[k] for k in before), "before/after identity mismatch")
+    return payload
 
 
 def export_evidence(attempt, comparison_passed, sink=None, limit=EXPORT_LIMIT):
-    """Exact UTF-8 content in JSON records; truncation is explicit, never green."""
     if sink is None:
         sink = sys.stdout
-    used, incomplete = 0, []
-    for name in EXPORT_FILES:
-        path = attempt/name
-        if not path.exists():
-            if comparison_passed and name in REQUIRED_EXPORT:
-                incomplete.append(name)
-            continue
-        require(path.is_file() and not path.is_symlink(), "unsafe evidence file: "+name)
-        require(path.stat().st_size <= COMMAND_BYTES, "oversized evidence file: "+name)
-        raw = path.read_bytes()
-        text = raw.decode("utf-8", errors="strict")
-        digest = hashlib.sha256(raw).hexdigest()
-        def encode(n):
-            prefix = text[:n]
-            return json.dumps({"evidence_file": name, "original_bytes": len(raw),
-                               "sha256": digest, "complete": n == len(text),
-                               "text": prefix}, ensure_ascii=True)+"\n"
-        remaining = max(0, limit-2048-used)  # reserve final outer receipt and bounded error line
-        whole = encode(len(text))
-        if len(whole.encode()) <= remaining:
-            record = whole
-        else:
-            incomplete.append(name)
-            low, high = 0, len(text)
-            if len(encode(0).encode()) > remaining:
-                continue
-            while low < high:
-                mid = (low+high+1)//2
-                if len(encode(mid).encode()) <= remaining:
-                    low = mid
-                else:
-                    high = mid-1
-            record = encode(low)
-        sink.write(record)
-        sink.flush()
-        used += len(record.encode())
-    require(not comparison_passed or not incomplete, "successful evidence missing or truncated: "+",".join(incomplete))
-    return {"exported_bytes": used, "incomplete_files": incomplete}
+    payload = semantic_evidence(attempt, comparison_passed)
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    # This hash binds the sanitized canonical payload, NOT any raw log.
+    envelope = {"evidence_format": SAFE_FORMAT, "sanitized_bytes": len(data),
+                "sanitized_sha256": hashlib.sha256(data).hexdigest(), "payload": payload}
+    record = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True)+"\n"
+    require(len(record.encode()) <= limit-2048, "sanitized evidence output limit")
+    sink.write(record)
+    sink.flush()
+    return {"exported_bytes": len(record.encode()), "sanitized_sha256": envelope["sanitized_sha256"],
+            "evidence_format": SAFE_FORMAT}
 
 
 def execute(source, prepared, attempt):
@@ -347,7 +449,7 @@ def execute(source, prepared, attempt):
     except BaseException as exc:
         failure = failure or exc
     final = {"passed": failure is None, "comparison_passed": comparison_passed,
-             "export": exported, "error": None if failure is None else str(failure)[:300]}
+             "export": exported, "error_code": None if failure is None else "comparison_or_export_failed"}
     (attempt/"outer-result.json").write_text(json.dumps(final)+"\n")
     # This final receipt distinguishes an inner comparison success from an
     # export failure. The exporter reserves 2048 bytes for this record and any bounded error line.
@@ -377,6 +479,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, OSError, subprocess.SubprocessError, KeyError) as exc:
-        print("FAIL: "+str(exc)[:300], file=sys.stderr)
+    except Exception:
+        print("FAIL: scanner comparison failed; see sanitized receipt", file=sys.stderr)
         sys.exit(1)

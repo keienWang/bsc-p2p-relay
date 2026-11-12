@@ -3,11 +3,11 @@
 ## Purpose and scope
 
 The default CI job runs [collect_binary_metadata.sh](../scripts/collect_binary_metadata.sh)
-immediately after its existing build and before the existing smoke test. The
+immediately after its [checked Linux build](LINUX_BUILD.md) and before the existing smoke test. The
 collector inspects that same fixed `./bsc-relay` output. It does not build or
 execute the relay, call `ldd`, change compilation/linker flags, upload a binary,
 or access the network. The surrounding CI still performs its existing build,
-tests and smoke test; this addition does not redefine them as read-only.
+tests and smoke test; the collector does not redefine them as read-only.
 
 It prints the checked-out Git commit and tree, binary SHA-256 and byte count,
 `file` output, Go build information/build ID, and the `readelf` version, ELF

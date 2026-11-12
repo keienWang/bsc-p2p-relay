@@ -212,7 +212,9 @@ class BinaryMetadataTest(unittest.TestCase):
 
     def test_ci_uses_same_default_build_before_existing_smoke(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        expected = ('      - run: go build -trimpath -buildvcs=false ./cmd/bsc-relay\n'
+        expected = ('      - name: Build and check the Linux delivery artifact\n'
+                    '        timeout-minutes: 4\n'
+                    '        run: python3 scripts/linux_build.py build-linux-amd64 --output bsc-relay\n'
                     '      - name: Inspect the built relay without executing it\n'
                     '        timeout-minutes: 1\n'
                     '        run: bash scripts/collect_binary_metadata.sh\n'

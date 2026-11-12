@@ -31,6 +31,11 @@ Prepared evidence includes the [targeted Herumi archive source and notice append
 
 [Read-only binary metadata collection](BINARY_METADATA.md) binds future ELF observations to the exact built file. Historical Go 1.26.10 properties do not establish the current Go 1.26.11 executable's properties, and metadata collection alone does not complete a production gate.
 
+The [Linux/amd64 build policy](LINUX_BUILD.md) integrates the checked linker policy
+into the recommended build path. Its candidate needs its own complete hosted
+validation, including the alternate official-txpool graph; the successful narrow
+research run does not by itself qualify a delivery artifact or complete this checklist.
+
 ## Separate Stage 2: verified head and transaction outcome
 
 The authenticated live capabilities below remain unimplemented. The offline commitment checker remains conditional on an unauthenticated supplied header. A separate first-epoch experiment authenticates genesis successors only through block 199, including a real mainnet block 1 fixture; it cannot follow the current chain. Neither completes these live verification gates:

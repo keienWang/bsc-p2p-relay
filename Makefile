@@ -1,13 +1,16 @@
 TEST_TIMEOUT ?= 300s
 
-.PHONY: build test race vet check fuzz smoke vuln dependencies sbom python-test
+.PHONY: build build-linux-amd64 test race race-linux-amd64 vet check fuzz smoke vuln dependencies sbom python-test
 build:
-	mkdir -p bin
-	go build -trimpath -buildvcs=false -o bin/bsc-relay ./cmd/bsc-relay
+	python3 scripts/linux_build.py build
+build-linux-amd64:
+	python3 scripts/linux_build.py build-linux-amd64
 test:
 	go test -count=1 -timeout=$(TEST_TIMEOUT) ./...
 race:
 	go test -race -count=1 -timeout=$(TEST_TIMEOUT) ./...
+race-linux-amd64:
+	python3 scripts/linux_build.py race
 vet:
 	go vet ./...
 check: vet race build python-test
