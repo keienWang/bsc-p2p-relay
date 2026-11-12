@@ -97,9 +97,14 @@ From the repository root, with an already built, reviewed binary at
 ```
 
 This selects mainnet encoding/genesis locally but supplies no peers and does not
-enable discovery. It is not a mainnet broadcast exercise. The binary prints a
-startup message with network, API address and ephemeral enode. An API bind can
-still fail after that message, so verify process survival and the endpoints.
+enable discovery. It is not a mainnet broadcast exercise. After validating the
+configuration, the CLI reserves the HTTP API listener before starting P2P. An API
+bind failure therefore exits without starting P2P or printing a successful
+startup message. If P2P startup fails, the reserved API listener is closed.
+The binary prints a startup message with network, API address and ephemeral
+enode only after both bind/start steps have succeeded. This is not an endpoint
+health check or a guarantee against later server errors: verify process survival
+and the endpoints.
 
 In another terminal, bypass any configured HTTP proxy and do not follow redirects:
 
@@ -126,6 +131,11 @@ any leftover argument, so even the older CLI without this check exits before
 creating a Node. The command-package Go tests retain this guard and separately
 check that flag-only arguments, including a bare final `--`, reach the normal
 address-validation path. These are argument-parsing tests, not delivery tests.
+The smoke also holds two test-owned loopback ports and checks that an API bind
+conflict is reported before the P2P conflict, without a startup-success message.
+Neither the old nor the corrected ordering can start P2P with this fixture.
+The Go command-package tests additionally check that a later P2P startup failure
+releases the reserved API listener. No existing service is used as a fixture.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
 to the verified relay PID. The CLI gives HTTP shutdown a five-second context and

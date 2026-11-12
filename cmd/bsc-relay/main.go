@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -50,13 +51,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer node.Close()
+	// Reserve the local API port before starting P2P. A bind failure must not
+	// briefly start discovery/static dialing or emit a successful startup log.
+	listener, err := net.Listen("tcp", *api)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 	if err = node.Start(); err != nil {
 		return err
 	}
-	defer node.Close()
 	srv := &http.Server{Addr: *api, Handler: node.Handler(), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	errs := make(chan error, 1)
-	go func() { errs <- srv.ListenAndServe() }()
+	go func() { errs <- srv.Serve(listener) }()
 	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", *api, "enode", node.Enode())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

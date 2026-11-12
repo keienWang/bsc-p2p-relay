@@ -125,10 +125,32 @@ def check_cli_rejections(binary, work):
     print("PASS: six CLI positional-argument rejection cases, before Node startup")
 
 
+def check_api_bind_failure(binary, work):
+    """Keep both loopback ports occupied, so even old code cannot start P2P."""
+    with socket.socket() as api, socket.socket() as p2p:
+        api.bind(("127.0.0.1", 0))
+        api.listen(1)
+        p2p.bind(("127.0.0.1", 0))
+        p2p.listen(1)
+        api_address = f"127.0.0.1:{api.getsockname()[1]}"
+        p2p_address = f"127.0.0.1:{p2p.getsockname()[1]}"
+        result = subprocess.run(
+            [binary, "--no-discovery", "--api", api_address, "--p2p", p2p_address],
+            cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, timeout=5, check=False,
+        )
+        if (result.returncode != 1 or f"listen tcp {api_address}:" not in result.stdout
+                or p2p_address in result.stdout
+                or "experimental relay started" in result.stdout):
+            raise AssertionError("occupied API port did not fail before P2P startup")
+    print("PASS: occupied API port rejected before P2P startup, using two owned loopback ports")
+
+
 def main(binary):
     binary = str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
         check_cli_rejections(binary, work)
+        check_api_bind_failure(binary, work)
         if list(pathlib.Path(work).iterdir()):
             raise AssertionError("CLI rejection left persistent data files")
     with socket.socket() as s:
