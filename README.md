@@ -74,6 +74,11 @@ Use `--no-discovery` to disable discovery and repeat `--peer` to supply static e
 
 Replace those illustrative enode values with actual peers. Testnet requires explicit peers; it does not use mainnet bootnodes. Network selection determines chain ID: mainnet 56 or testnet 97. Use `--help` for the complete implemented flags.
 
+Only flags are accepted, not subcommands or positional arguments. Unexpected
+leftover arguments fail startup rather than silently ignoring later flags. Use
+`--no-discovery=false` to supply an explicit boolean value, not
+`--no-discovery false`.
+
 Do not expose the HTTP API through a reverse proxy, tunnel, or public port forward. It has no authentication and this milestone disallows a remote API listener. The P2P listener is a separate network surface.
 
 ## HTTP API

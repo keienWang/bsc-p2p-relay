@@ -39,6 +39,9 @@ func run() error {
 	flag.DurationVar(&cfg.CacheTTL, "cache-ttl", cfg.CacheTTL, "transaction memory retention")
 	flag.Var(&peers, "peer", "static enode URL; repeatable")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		return errors.New("unexpected positional arguments; use --help for supported flags")
+	}
 	cfg.Peers = peers
 	if err := relay.LoopbackAddress(*api); err != nil {
 		return err

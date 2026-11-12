@@ -67,13 +67,14 @@ def check_contracts(doc, cli, node, http, store):
             raise ValueError("unsupported flag reference or receiver; review checker")
     calls = re.findall(r"\bflag\s*\.\s*(\w+)\s*\(", cli)
     methods = set(calls)
-    supported = {"StringVar", "BoolVar", "IntVar", "DurationVar", "Var", "String", "Parse"}
+    inspections = {"Parse", "NArg"}
+    supported = {"StringVar", "BoolVar", "IntVar", "DurationVar", "Var", "String"} | inspections
     if methods - supported:
         raise ValueError(f"unrecognized CLI flag methods; review checker: {sorted(methods - supported)}")
     declarations = re.findall(
         r'\bflag\s*\.\s*(?:StringVar|BoolVar|IntVar|DurationVar|Var)\s*\([^,]+,\s*"([^"]*)"\s*,', cli)
     declarations += re.findall(r'\bflag\s*\.\s*String\s*\(\s*"([^"]*)"\s*,', cli)
-    if (len(declarations) != sum(method != "Parse" for method in calls)
+    if (len(declarations) != sum(method not in inspections for method in calls)
             or any(not re.fullmatch(r"[a-z][a-z0-9_-]*", name) for name in declarations)):
         raise ValueError("unparsed or unsupported CLI flag declarations; review checker")
     if len(declarations) != len(set(declarations)):

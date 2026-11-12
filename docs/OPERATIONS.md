@@ -56,6 +56,15 @@ use. This guide does not certify that a new binary has passed its release gates.
 Only the following application flags are registered. `--help` displays Go's
 generated flag help. Limits are startup configuration, not hot-reload settings.
 
+There are no subcommands or positional arguments. Any leftover argument causes
+startup to fail before a Node is created or either listener opens, with
+`unexpected positional arguments; use --help for supported flags`. This also
+rejects arguments after `--`; a bare final `--` is allowed. Go flag parsing stops
+at the first positional argument, so allowing leftovers could silently ignore
+later flags such as `--network testnet`. For explicit boolean values use
+`--no-discovery=false` or `--no-discovery=true`, not `--no-discovery false`.
+The positional-error message deliberately does not print supplied arguments.
+
 <!-- operations-flags:start -->
 | Flag | Default | Validation or consequence |
 | --- | --- | --- |
@@ -110,6 +119,13 @@ shutdown plus the absence of data files:
 ```sh
 python3 scripts/smoke.py ./bin/bsc-relay
 ```
+
+Before that local startup, the smoke checks six positional-argument rejection
+cases against the same binary. These cases put an invalid API address before
+any leftover argument, so even the older CLI without this check exits before
+creating a Node. The command-package Go tests retain this guard and separately
+check that flag-only arguments, including a bare final `--`, reach the normal
+address-validation path. These are argument-parsing tests, not delivery tests.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
 to the verified relay PID. The CLI gives HTTP shutdown a five-second context and

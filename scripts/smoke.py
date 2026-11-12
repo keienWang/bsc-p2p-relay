@@ -98,8 +98,39 @@ def assert_stats_counts(value, validations):
     assert value["http"] == {"concurrency_rejected_total": 0}, "unexpected HTTP refusal"
 
 
+def check_cli_rejections(binary, work):
+    """Test argument errors without reaching even loopback Node startup.
+
+    The invalid API address comes first so the prior, uncorrected binary also
+    stops before New/Start rather than ignoring trailing isolation flags.
+    """
+    expected = "unexpected positional arguments; use --help for supported flags"
+    cases = (
+        ("unrecognized-subcommand",),
+        ("unrecognized-subcommand", "--network", "testnet"),
+        ("--network", "testnet", "unexpected-value"),
+        ("--no-discovery", "false", "--network", "testnet"),
+        ("--", "--network", "testnet"),
+        ("-", "--network", "testnet"),
+    )
+    for suffix in cases:
+        command = [binary, "--api", "not-an-address", "--no-discovery",
+                   "--p2p", "127.0.0.1:0", *suffix]
+        result = subprocess.run(command, cwd=work, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=5, check=False)
+        if (result.returncode != 1 or expected not in result.stdout
+                or "experimental relay started" in result.stdout):
+            raise AssertionError("CLI positional arguments did not fail before startup")
+    print("PASS: six CLI positional-argument rejection cases, before Node startup")
+
+
 def main(binary):
     binary = str(pathlib.Path(binary).resolve())
+    with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
+        check_cli_rejections(binary, work)
+        if list(pathlib.Path(work).iterdir()):
+            raise AssertionError("CLI rejection left persistent data files")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]

@@ -49,6 +49,13 @@ class OperationsDocsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_contracts(*changed)
 
+    def test_flag_inspection_is_not_counted_as_a_registration(self):
+        changed = self.contract.copy()
+        self.assertIn("flag.NArg()", changed[1])
+        self.assertEqual(check_contracts(*changed), [])
+        changed[1] += '\nflag.String("another-flag", "", "new flag")\n'
+        self.assertTrue(any("another-flag" in error for error in check_contracts(*changed)))
+
     def test_supported_flag_method_with_unparsed_name_fails_closed(self):
         for declaration in ('flag.StringVar(&cfg.Network, flagName, "mainnet", "network")',
                             'flag.StringVar(&cfg.Network, "BadName", "mainnet", "network")'):
