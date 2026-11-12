@@ -1,9 +1,11 @@
 # Checked Linux/amd64 build entry
 
-Status: **formal integration candidate, not yet hosted-validated**. The narrower
-research experiment below passed; this new Makefile/default-CI/official-test
-integration needs its own reviewed hosted run. No production readiness, main
-branch deployment, full native compatibility or executable-stack exploit is claimed.
+Status: the checked delivery entry and same-policy official test package passed
+hosted validation at public source `c27438bf46969dd224db5cbaa49f65b747537787`.
+The [acceptance record](HOSTED_ACCEPTANCE_2026_11_12.md) binds that result to its
+exact source, artifacts, commands and CI run. It does not confer acceptance on
+later code changes. No production readiness, full native compatibility or
+executable-stack exploit is claimed.
 
 ## User and CI entry points
 

@@ -10,10 +10,12 @@ are not a qualification of the separate formal delivery integration.
 The plan, budgets and unchanged-default statements below describe that
 **research-only tree** `292f8e2030cd23965714a7c6301cd2e342b9d7cb`: default build
 flags, the other four CI jobs, dependencies, archives and runtime were unchanged
-there. The new [checked Linux build candidate](LINUX_BUILD.md) changes the
+there. The later [checked Linux build entry](LINUX_BUILD.md) changes the
 recommended Linux build/default-CI path and adds alternate-graph same-policy
-testing; it still needs its own hosted validation. The earlier failed attempt
-has not been relabeled as successful.
+testing. Its separate [hosted acceptance record](HOSTED_ACCEPTANCE_2026_11_12.md)
+is bound to public source `c27438bf46969dd224db5cbaa49f65b747537787`, rather than
+borrowing this research result. The earlier failed attempt has not been relabeled
+as successful.
 
 ## Planned scope and budget
 

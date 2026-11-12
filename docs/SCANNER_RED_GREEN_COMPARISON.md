@@ -1,4 +1,10 @@
-# Strict scanner old-red/new-green comparison (implementation, not execution)
+# Strict scanner old-red/new-green comparison
+
+The repaired comparison completed on public source
+`c27438bf46969dd224db5cbaa49f65b747537787`; see the
+[source-bound hosted acceptance record](HOSTED_ACCEPTANCE_2026_11_12.md).
+This establishes the two synthetic controls, not a real vulnerability database
+scan or complete relay test-graph coverage. Earlier failures below remain failures.
 
 The initial harness was reviewed on f6296b97dd5945a6a2b022b843783ecd8c0a4efb. This integration is based on 847ba30de02eee5af91174cc76c7a32ba9dfc200, preserving its no-executable-stack work. It appends a comparison step to the existing scanner_synthetic job after the original 11 synthetic tests pass. All five jobs remain; original tests, scanner harness/patches, relay runtime, dependency files and production scanner entry point are unchanged.
 

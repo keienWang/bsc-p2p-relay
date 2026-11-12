@@ -50,7 +50,7 @@ the recommended Linux artifact build; choosing it does not inherit the policy.
 The broader security-patched Go versions above remain development prerequisites,
 not an assertion that this narrowly qualified build entry supports every version.
 
-These are commands to run, not a claim that the new delivery integration has passed. No public-network transaction broadcast success is claimed. A separate [isolated official BSC backend/txpool integration test](integration/officialtxpool/README.md) exercises signed transactions only over loopback P2P, including stateful rejection and reconnects.
+The checked Linux delivery entry and same-policy loopback tests have a [source-bound hosted acceptance record](docs/HOSTED_ACCEPTANCE_2026_11_12.md); this is not production qualification. No public-network transaction broadcast success is claimed. A separate [isolated official BSC backend/txpool integration test](integration/officialtxpool/README.md) exercises signed transactions only over loopback P2P, including stateful rejection and reconnects.
 
 ## Run
 

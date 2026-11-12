@@ -32,9 +32,10 @@ Prepared evidence includes the [targeted Herumi archive source and notice append
 [Read-only binary metadata collection](BINARY_METADATA.md) binds future ELF observations to the exact built file. Historical Go 1.26.10 properties do not establish the current Go 1.26.11 executable's properties, and metadata collection alone does not complete a production gate.
 
 The [Linux/amd64 build policy](LINUX_BUILD.md) integrates the checked linker policy
-into the recommended build path. Its candidate needs its own complete hosted
-validation, including the alternate official-txpool graph; the successful narrow
-research run does not by itself qualify a delivery artifact or complete this checklist.
+into the recommended build path. Its default artifact and alternate official-txpool
+graph passed the [source-bound hosted acceptance](HOSTED_ACCEPTANCE_2026_11_12.md)
+on `c27438bf46969dd224db5cbaa49f65b747537787`. This is a checked build/test result,
+not completion of the remaining production checklist or all native qualification.
 
 ## Separate Stage 2: verified head and transaction outcome
 
