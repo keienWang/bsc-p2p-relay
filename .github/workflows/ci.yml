@@ -166,3 +166,8 @@ jobs:
       - name: Run only selected synthetic tests with no outbound network
         timeout-minutes: 7
         run: python3 scripts/scanner_synthetic_ci.py run "$GITHUB_WORKSPACE/scanner-source" "$RUNNER_TEMP/scanner-synthetic"
+      - name: Check strict scanner comparison contracts without running Go
+        run: python3 -m unittest discover -s scripts -p 'test_scanner_redgreen_ci.py'
+      - name: Compare identical synthetic tests against official and patched scanner offline
+        timeout-minutes: 9
+        run: python3 scripts/scanner_redgreen_ci.py run "$GITHUB_WORKSPACE/scanner-source" "$RUNNER_TEMP/scanner-synthetic" "$RUNNER_TEMP/scanner-redgreen"
