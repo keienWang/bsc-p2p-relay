@@ -132,6 +132,44 @@ class FakeRun:
         return "\n".join(json.dumps(x) for x in packages)
 
 
+class BSCFakeRun(FakeRun):
+    """Synthetic package, not a claim about which real BSC packages are selected."""
+    def __init__(self, root, module_change=None, package_change=None, directory_change=None):
+        super().__init__(root)
+        self.module_change = module_change
+        self.package_change = package_change
+        self.directory_change = directory_change
+
+    def __call__(self, command, cwd, env, deadline):
+        output = super().__call__(command, cwd, env, deadline)
+        if command[1] != "list":
+            return output
+        version, checksum, modsum = stage.BSC_PIN
+        root = Path(env["GOMODCACHE"]) / (stage.BSC + "@" + version)
+        directory = root / "metadata_fixture"
+        directory.mkdir(parents=True, exist_ok=True)
+        (root / "LICENSE").write_text("DO_NOT_EXPORT_BSC_LICENSE")
+        (directory / "fixture.go").write_text("DO_NOT_EXPORT_BSC_SOURCE")
+        original = {"Path": stage.GETH, "Version": stage.GETH_VERSION, "Dir": str(root),
+                    "Replace": {"Path": stage.BSC, "Version": version, "Sum": checksum,
+                                "GoModSum": modsum, "Dir": str(root)}}
+        objects = stage.stream_json(output)
+        if command[1:4] == ["list", "-m", "-json"]:
+            if self.module_change:
+                self.module_change(original)
+            objects.append(original)
+        else:
+            if self.package_change:
+                self.package_change(original)
+            package = {"ImportPath": stage.GETH + "/metadata_fixture", "Dir": str(directory),
+                       "Module": original, "GoFiles": ["fixture.go"], "Imports": []}
+            if self.directory_change:
+                self.directory_change(package, root)
+            objects[3]["Imports"].append(package["ImportPath"])
+            objects.append(package)
+        return "\n".join(json.dumps(x) for x in objects)
+
+
 class Contracts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -141,7 +179,7 @@ class Contracts(unittest.TestCase):
                       "go.mod": "module " + stage.MAIN + "\n",
                       "go.sum": "".join(path + " " + version + " " + value + "\n" +
                                        path + " " + version + "/go.mod " + modsum + "\n"
-                                       for path, (version, value, modsum) in stage.PINS.items()),
+                                       for path, (version, value, modsum) in dict(stage.PINS, **{stage.BSC: stage.BSC_PIN}).items()),
                       "compat/stunv2/go.mod": "module test/stun\n"}
         for relative, text in self.files.items():
             p = self.root / relative
@@ -185,6 +223,122 @@ class Contracts(unittest.TestCase):
         self.assertFalse(report["modules"][stage.LRU]["has_selected_packages"])
         self.assertEqual([c[0] for c in runner.commands], ["env", "mod", "list", "list"])
         self.assertEqual(runner.commands[2], ["list", "-deps", "-test", "-json", "./internal/blsgraphprobe"])
+
+    def collect_bsc(self, **changes):
+        runner = BSCFakeRun(self.root, **changes)
+        report = json.loads(stage.collect(self.root, self.go, runner))
+        self.assertFalse(runner.state.exists())
+        return report
+
+    def test_bsc_exact_replacement_identity_and_effective_files(self):
+        report = self.collect_bsc()
+        rec = report["modules"][stage.GETH]
+        self.assertTrue(rec["replacement"])
+        self.assertTrue(rec["has_selected_packages"])
+        self.assertEqual(rec["original"], {"path": stage.GETH, "version": stage.GETH_VERSION,
+                                           "declared_only": True})
+        self.assertEqual(rec["effective"], {"path": stage.BSC, "version": stage.BSC_PIN[0],
+                                            "sum": stage.BSC_PIN[1], "go_mod_sum": stage.BSC_PIN[2]})
+        self.assertNotIn("sum", rec["original"])
+        self.assertNotIn("go_mod_sum", rec["original"])
+        self.assertNotIn(stage.BSC, report["modules"])
+        package = next(p for p in report["packages"] if p["id"] == stage.GETH + "/metadata_fixture")
+        self.assertEqual(package["component"], stage.GETH)
+        self.assertEqual(package["files"], [{"path": "metadata_fixture/fixture.go", "role": "GoFiles",
+                                            "sha256": stage.sha(b"DO_NOT_EXPORT_BSC_SOURCE")}])
+        self.assertEqual(report["found_license_files"][stage.GETH],
+                         [{"path": "LICENSE", "sha256": stage.sha(b"DO_NOT_EXPORT_BSC_LICENSE")}])
+        self.assertNotIn(str(self.root), json.dumps(report))
+        self.assertNotIn("DO_NOT_EXPORT", json.dumps(report))
+
+    def test_bsc_package_optional_checksums_can_be_absent(self):
+        def omit(obj):
+            del obj["Replace"]["Sum"]
+            del obj["Replace"]["GoModSum"]
+            del obj["Dir"]
+        self.collect_bsc(package_change=omit)
+
+    def test_bsc_effective_module_negative_contracts(self):
+        cases = [
+            (lambda m: m["Replace"].pop("Sum"), "effective_sum_mismatch"),
+            (lambda m: m["Replace"].update(Sum="h1:WRONG"), "effective_sum_mismatch"),
+            (lambda m: m["Replace"].pop("GoModSum"), "effective_modsum_mismatch"),
+            (lambda m: m["Replace"].update(GoModSum="h1:WRONG"), "effective_modsum_mismatch"),
+            (lambda m: m["Replace"].pop("Dir"), "effective_dir_mismatch"),
+            (lambda m: m["Replace"].update(Dir="/private/not-exported"), "effective_dir_mismatch"),
+            (lambda m: m.update(Dir="/private/not-exported"), "original_effective_dir_mismatch"),
+            (lambda m: m["Replace"].update(Error={"Err": "/secret"}), "invalid_effective_module"),
+            (lambda m: m["Replace"].update(Main=True), "invalid_effective_module"),
+            (lambda m: m["Replace"].update(Replace={"Path": "/secret"}), "invalid_effective_module"),
+            (lambda m: m.update(Sum=stage.BSC_PIN[1]), "unexpected_original_checksum"),
+            (lambda m: m.update(GoModSum=stage.BSC_PIN[2]), "unexpected_original_checksum"),
+            (lambda m: m.update(Version="v1.16.3"), "unexpected_module_replacement"),
+            (lambda m: m["Replace"].update(Version="v1.8.3"), "unexpected_module_replacement"),
+            (lambda m: m["Replace"].update(Path="example.org/other"), "unexpected_module_replacement"),
+            (lambda m: m.update(Replace={"Path": "/private/not-exported"}), "unexpected_module_replacement"),
+        ]
+        for index, (change, expected) in enumerate(cases):
+            with self.subTest(case=index), self.assertRaisesRegex(stage.GateError, "^" + expected + "$"):
+                self.collect_bsc(module_change=change)
+
+    def test_bsc_locked_effective_pin_required(self):
+        original = self.files["go.sum"]
+        for line in original.splitlines():
+            if not line.startswith(stage.BSC + " "):
+                continue
+            for substitute in ("", line.rsplit(" ", 1)[0] + " h1:WRONG"):
+                changed = original.replace(line + "\n", substitute + "\n" if substitute else "")
+                (self.root / "go.sum").write_text(changed)
+                with self.subTest(line=line, missing=not substitute), \
+                     mock.patch.dict(stage.INPUTS, {"go.sum": stage.sha(changed.encode())}), \
+                     self.assertRaisesRegex(stage.GateError, "^effective_declared_pin_mismatch$"):
+                    self.collect_bsc()
+        (self.root / "go.sum").write_text(original)
+
+    def test_bsc_package_module_contradictions_fail(self):
+        cases = [
+            (lambda m: m.update(Version="v1.16.3"), "package_module_identity_mismatch"),
+            (lambda m: m.pop("Replace"), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].update(Path=stage.GETH), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].update(Version="v1.8.3"), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].update(Replace={"Path": "/secret"}), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].update(Main=True), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].update(Error={"Err": "/secret"}), "package_replacement_identity_mismatch"),
+            (lambda m: m["Replace"].pop("Dir"), "package_effective_dir_mismatch"),
+            (lambda m: m["Replace"].update(Dir="/private/not-exported"), "package_effective_dir_mismatch"),
+            (lambda m: m.update(Dir="/private/not-exported"), "package_module_dir_mismatch"),
+            (lambda m: m.update(Sum=stage.BSC_PIN[1]), "package_original_checksum"),
+            (lambda m: m.update(GoModSum=stage.BSC_PIN[2]), "package_original_checksum"),
+            (lambda m: m["Replace"].update(Sum="h1:WRONG"), "package_effective_sum_mismatch"),
+            (lambda m: m["Replace"].update(GoModSum="h1:WRONG"), "package_effective_sum_mismatch"),
+        ]
+        for index, (change, expected) in enumerate(cases):
+            with self.subTest(case=index), self.assertRaisesRegex(stage.GateError, "^" + expected + "$"):
+                self.collect_bsc(package_change=change)
+
+    def test_bsc_package_files_must_use_effective_root(self):
+        def escape(package, root):
+            other = root.parent / "unselected"
+            other.mkdir()
+            (other / "fixture.go").write_text("not effective source")
+            package["Dir"] = str(other)
+        with self.assertRaisesRegex(stage.GateError, "^package_dir_escape$"):
+            self.collect_bsc(directory_change=escape)
+
+    def test_bsc_effective_root_not_another_cache_directory_or_symlink(self):
+        def wrong_directory(obj):
+            wrong = Path(obj["Replace"]["Dir"]).parent / "unselected"
+            wrong.mkdir()
+            obj["Replace"]["Dir"] = str(wrong)
+        with self.assertRaisesRegex(stage.GateError, "^effective_dir_mismatch$"):
+            self.collect_bsc(module_change=wrong_directory)
+        def symlink_directory(obj):
+            root = Path(obj["Replace"]["Dir"])
+            other = root.with_name("unselected")
+            root.rename(other)
+            root.symlink_to(other, target_is_directory=True)
+        with self.assertRaisesRegex(stage.GateError, "^effective_dir_mismatch$"):
+            self.collect_bsc(module_change=symlink_directory)
 
     def test_expected_missing_testmain_source_is_explicit(self):
         report, _ = self.collect("generated_missing")

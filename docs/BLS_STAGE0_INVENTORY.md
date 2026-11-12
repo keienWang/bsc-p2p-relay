@@ -1,7 +1,9 @@
 # Stage 0: fixed-input BLS declaration inventory
 
-Status: candidate metadata collector; no actual Go result, race result, license
-approval, production fix, or complete native compilation inventory is asserted.
+Status: the first hosted metadata attempt stopped at an unsupported replacement.
+This narrowly scoped successor is Python/mock-verified only; it has not been
+rerun in hosted CI. No successful inventory, race result, license approval,
+production fix, or complete native compilation inventory is asserted.
 
 ## Scope
 
@@ -89,11 +91,28 @@ No missing static file is silently dropped.
 
 For selected package declaration files the report contains component-relative
 names, source-field roles and SHA-256 values. Module original/effective identity
-is explicit. This initial collector does not support effective module replacements;
-if one is selected it stops with validated original/replacement module coordinates
-(or a redacted local-path marker), so its scope can be reviewed. The copied root
-BSC/Comet/STUN replacements are preserved. Whether they enter the direct-blst graph
-is unverified, not assumed unrelated.
+is explicit. The sole supported versioned replacement is the one observed in the
+first hosted attempt: github.com/ethereum/go-ethereum v1.16.2, with effective
+source github.com/bnb-chain/bsc v1.8.2. Both effective source checksums must match
+the fixed BSC pin AND the committed go.sum. Its Dir must identify exactly that
+version in the collector's private module cache, not an arbitrary cache directory
+or symlink. When present, the outer module Dir must agree with the effective Dir.
+
+The original identity contains only declared path/version and declared_only=true;
+no source checksum is attributed to original geth, and no claim is made about
+whether its source was downloaded. Unexpected outer source checksums stop for
+review instead of being confused with BSC checksums. The effective identity holds
+the BSC path/version/Sum/GoModSum. Package Module/Replace coordinates and Dir must
+agree with the authoritative go list -m receipt; package-level effective sums may
+be omitted by Go, but if supplied must match. Authoritative module-level effective
+sums are mandatory. Selected file and license names remain relative to the
+EFFECTIVE BSC source root, under the declared geth component key.
+
+All other replacements still stop with validated original/replacement module
+coordinates (or a redacted local-path marker). The copied root BSC/Comet/STUN
+replacement declarations are unchanged. Only this BSC replacement's presence is
+observed so far; specific BSC packages and other replacements' applicability are
+unverified, not inferred from their declarations or the synthetic Python fixture.
 Only the probe's own TestGoFiles are treated as probe declarations; dependency
 test declarations are not represented as selected upstream tests.
 
@@ -126,8 +145,10 @@ module/build cache, binary, native archive or crash dump is exported. The existi
 five jobs keep their original bytes and validation scopes; their cache policies
 are not being described as this new job's policy.
 
-This workflow addition still needs independent review and actual hosted execution.
-Neither a local Python pass nor older CI proves that this new job succeeds.
+The initial workflow was independently reviewed and executed once as recorded
+below. This metadata-only successor still requires independent review and a new
+hosted run. Neither a local Python pass nor the five other jobs proves that this
+research job succeeds.
 
 Current verification is Python-only mocks and static input checks. A successful
 future stage0 merely proves collection and input matching for this probe.
@@ -163,3 +184,35 @@ checkers and scoped diff checks passed again. Final unittest log SHA-256:
 `bc194b74fc9d67244f9548640e14760a86936b75dcd9808442f0741e7e939cd8`.
 The earlier failed and successful attempts are retained as separate evidence.
 This final check still executed no Go, native code, BLS test or network request.
+
+## First hosted stop and narrow replacement successor
+
+The first research run was
+[43268277570, job 131357641561](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43268277570/job/131357641561).
+Its published research commit was 5b698a76 (source-equivalent local collector
+baseline 5542c8f124b83793653272ca8b8b32f59bccc980); public main remained
+560ddfc85e05f9a22d16d3b420396d10605e00c8. Go 1.26.11 and the 25 Python contracts
+passed, then the collector stopped after approximately 15 seconds with
+unexpected_module_replacement for geth v1.16.2 -> BSC v1.8.2. This was a
+fail-closed scope discovery, not a timeout or a successful inventory. No BLS
+race test or cache patch ran. The original job log SHA-256 is
+378ea47c837a3fa6547281037b52bc42292de4cf8a8f5497bc4c36bd563e1b64.
+
+The successor changes only the collector, its Python contracts and this record.
+It does not change workflow bytes, root locks, probe, runtime code or private
+cache-patch materials. The two BSC checksums are:
+- source: h1:JsIDzex6xCcv65zumiJV46hyU17bUOvEkUsK7Iori9I=
+- go.mod: h1:tdJAv6mJ2xGqzFFrnXJnOY1eBrQRneRJP/eOP72e73w=
+
+The local successor suite passes 32 Python contracts (including grouped negative
+cases for missing/wrong pins, local or other replacements, misplaced or symlinked
+effective roots, package/module contradictions and false original checksum
+attribution). Its synthetic metadata_fixture package is not evidence of any
+actual BSC package selection. No local Go/network execution or hosted rerun was
+performed while preparing this successor. There is still no real inventory to
+review for license applicability or to inherit for dynamic regression testing.
+
+The full local Python suite then passed 175 tests in 11.170 seconds, and both
+existing documentation checkers passed. Full Python output SHA-256:
+226926ba2ee6acc9e7911a7a21e0cc3fcdaa07eb185d1ca4d508a372288708dd.
+These are mock/static and Python process-cleanup checks, not a hosted retry.

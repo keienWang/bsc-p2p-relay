@@ -19,6 +19,12 @@ PROBE = MAIN + "/internal/blsgraphprobe"
 BLS = "github.com/prysmaticlabs/prysm/v5"
 BLST = "github.com/supranational/blst"
 LRU = "github.com/hashicorp/golang-lru"
+# The only supported replacement was observed in the first hosted probe.
+GETH = "github.com/ethereum/go-ethereum"
+GETH_VERSION = "v1.16.2"
+BSC = "github.com/bnb-chain/bsc"
+BSC_PIN = ("v1.8.2", "h1:JsIDzex6xCcv65zumiJV46hyU17bUOvEkUsK7Iori9I=",
+           "h1:tdJAv6mJ2xGqzFFrnXJnOY1eBrQRneRJP/eOP72e73w=")
 GO_VERSION = "go1.26.11"
 PROBE_FILE = "research/bls-stage0/probe_test.go.txt"
 INPUTS = {
@@ -244,8 +250,6 @@ def module_record(obj, sums, state):
     path = module_name(obj.get("Path"))
     version = obj.get("Version")
     require(isinstance(version, str) and re.fullmatch(r"v[A-Za-z0-9_.+-]+", version), "invalid_module_version")
-    # Replacement applicability is not known until the real graph is collected.
-    # This initial collector stops for review rather than silently following it.
     require(not obj.get("Main"), "unexpected_main_module")
     if obj.get("Replace"):
         replacement = obj["Replace"]
@@ -259,6 +263,9 @@ def module_record(obj, sums, state):
                     "invalid_replacement_version")
             effective = {"kind": "versioned_module", "path": replacement_path,
                          "version": replacement_version}
+        if (path, version, effective.get("path"), effective.get("version")) == (
+                GETH, GETH_VERSION, BSC, BSC_PIN[0]):
+            return bsc_replacement_record(obj, sums, state)
         error = GateError("unexpected_module_replacement")
         error.safe_diagnostics = {"original_module": {"path": path, "version": version},
                                   "effective_module": effective}
@@ -272,6 +279,53 @@ def module_record(obj, sums, state):
         require((version, obj["Sum"], obj["GoModSum"]) == PINS[path], "pin_mismatch")
     identity = {"path": path, "version": version, "sum": obj["Sum"], "go_mod_sum": obj["GoModSum"]}
     return {"original": identity, "effective": dict(identity), "replacement": False}, root
+
+
+def bsc_replacement_record(obj, sums, state):
+    """One versioned source replacement, not a general replacement resolver."""
+    replacement = obj["Replace"]
+    require(not replacement.get("Error") and not replacement.get("Main") and
+            not replacement.get("Replace"), "invalid_effective_module")
+    version, checksum, modsum = BSC_PIN
+    require(sums.get((BSC, version)) == checksum and
+            sums.get((BSC, version + "/go.mod")) == modsum, "effective_declared_pin_mismatch")
+    require(replacement.get("Sum") == checksum, "effective_sum_mismatch")
+    require(replacement.get("GoModSum") == modsum, "effective_modsum_mismatch")
+    # Original checksums must never be silently taken from the replacement.
+    require(not obj.get("Sum") and not obj.get("GoModSum"), "unexpected_original_checksum")
+    expected = state / "modcache" / (BSC + "@" + version)
+    root = Path(replacement.get("Dir", ""))
+    require(root.is_absolute() and root == expected and root.is_dir() and
+            root.resolve() == expected and not root.is_symlink(), "effective_dir_mismatch")
+    if obj.get("Dir") is not None:
+        require(obj["Dir"] == str(root), "original_effective_dir_mismatch")
+    effective = {"path": BSC, "version": version, "sum": checksum, "go_mod_sum": modsum}
+    original = {"path": GETH, "version": GETH_VERSION, "declared_only": True}
+    return {"original": original, "effective": effective, "replacement": True}, root
+
+
+def check_package_module(obj, record, root):
+    """Bind per-package metadata to the authoritative go list -m receipt."""
+    require(obj.get("Path") == record["original"]["path"] and
+            obj.get("Version") == record["original"]["version"] and
+            not obj.get("Error") and not obj.get("Main"), "package_module_identity_mismatch")
+    if not record["replacement"]:
+        require(not obj.get("Replace"), "package_module_identity_mismatch")
+        return
+    replacement = obj.get("Replace")
+    require(isinstance(replacement, dict) and
+            replacement.get("Path") == record["effective"]["path"] and
+            replacement.get("Version") == record["effective"]["version"] and
+            not replacement.get("Main") and not replacement.get("Error") and
+            not replacement.get("Replace"), "package_replacement_identity_mismatch")
+    require(replacement.get("Dir") == str(root), "package_effective_dir_mismatch")
+    if obj.get("Dir") is not None:
+        require(obj["Dir"] == str(root), "package_module_dir_mismatch")
+    require(not obj.get("Sum") and not obj.get("GoModSum"), "package_original_checksum")
+    # Package metadata may omit sums; the authoritative module record may not.
+    for field, key in (("Sum", "sum"), ("GoModSum", "go_mod_sum")):
+        if field in replacement:
+            require(replacement[field] == record["effective"][key], "package_effective_sum_mismatch")
 
 
 def file_record(root, path, budget=None, deadline=None):
@@ -358,8 +412,7 @@ def inventory(packages, modules, roots, work, state, goroot, deadline=None):
             component = module_name(obj.get("Module", {}).get("Path"))
             require(component in modules, "unknown_package_module")
             root = roots[component]
-            require(obj["Module"].get("Version") == modules[component]["original"]["version"] and
-                    not obj["Module"].get("Replace"), "package_module_identity_mismatch")
+            check_package_module(obj["Module"], modules[component], root)
         directory = Path(obj.get("Dir", "")).resolve()
         require(directory.is_dir() and directory.is_relative_to(root.resolve()), "package_dir_escape")
         directories[component].add(directory)
