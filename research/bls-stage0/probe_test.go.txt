@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Stage 0 import-only metadata probe. No regression tests are defined or run.
+package blsgraphprobe
+
+import _ "github.com/prysmaticlabs/prysm/v5/crypto/bls/blst"

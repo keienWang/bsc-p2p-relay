@@ -282,8 +282,8 @@ class ExportAndWorkflow(unittest.TestCase):
     def test_workflow_appends_comparison_without_replacing_original_tests(self):
         text=(Path(__file__).resolve().parents[1]/".github/workflows/ci.yml").read_text()
         jobs=[line.strip()[:-1] for line in text.splitlines() if line.startswith("  ") and not line.startswith("   ") and line.endswith(":")]
-        self.assertEqual(jobs,["test","official_txpool","canonical_isolation","noexecstack_candidate","scanner_synthetic"])
-        job=text.split("  scanner_synthetic:",1)[1]
+        self.assertEqual(jobs,["test","official_txpool","canonical_isolation","noexecstack_candidate","scanner_synthetic","bls_stage0_inventory"])
+        job=text.split("  scanner_synthetic:",1)[1].split("\n  bls_stage0_inventory:",1)[0]
         self.assertIn("timeout-minutes: 15",job)
         first=job.index('scripts/scanner_synthetic_ci.py run')
         second=job.index('scripts/scanner_redgreen_ci.py run')

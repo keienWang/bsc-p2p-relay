@@ -202,7 +202,7 @@ class ScannerSyntheticContract(unittest.TestCase):
 
     def test_workflow_separate_job_and_no_scanner_execution(self):
         workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/ci.yml').read_text()
-        job = workflow.split('\n  scanner_synthetic:', 1)[1]
+        job = workflow.split('\n  scanner_synthetic:', 1)[1].split('\n  bls_stage0_inventory:', 1)[0]
         self.assertIn('ref: ' + h.UPSTREAM, job)
         self.assertEqual(job.count('persist-credentials: false'), 2)
         self.assertIn('timeout-minutes: 15', job)

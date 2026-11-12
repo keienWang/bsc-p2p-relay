@@ -179,3 +179,50 @@ jobs:
       - name: Compare identical synthetic tests against official and patched scanner offline
         timeout-minutes: 9
         run: python3 scripts/scanner_redgreen_ci.py run "$GITHUB_WORKSPACE/scanner-source" "$RUNNER_TEMP/scanner-synthetic" "$RUNNER_TEMP/scanner-redgreen"
+  bls_stage0_inventory:
+    name: experimental BLS inputs only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GOTOOLCHAIN: local
+      GOENV: 'off'
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: false
+      - name: Verify the fixed metadata toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.26.11
+      - name: Check inventory contracts without running Go packages
+        timeout-minutes: 1
+        run: python3 -m unittest discover -s scripts -p 'test_bls_stage0_inventory.py'
+      - name: Collect the import-only graph without tests or cache patches
+        timeout-minutes: 11
+        run: python3 scripts/bls_stage0_inventory.py > "$RUNNER_TEMP/bls-stage0-inventory.json"
+      - name: Record only the checked safe inventory
+        timeout-minutes: 1
+        run: |
+          python3 - "$RUNNER_TEMP/bls-stage0-inventory.json" <<'PYCODE'
+          import hashlib, json, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          assert path.is_file() and not path.is_symlink()
+          data = path.read_bytes()
+          assert 0 < len(data) <= 4 * 1024 * 1024
+          obj = json.loads(data)
+          assert obj['schema'] == 'bls-stage0-inventory-v1'
+          assert obj['status'] == 'metadata_inputs_verified'
+          assert obj['tests_executed'] is False and obj['patch_applied'] is False
+          assert obj['license_approval'] is False
+          assert obj['build_mode'] == 'non_race_metadata_only'
+          assert obj['scope'] == 'single_import_only_probe_not_six_or_ten_regression_test_graph'
+          print('BLS_STAGE0_INVENTORY_RECEIPT ' + json.dumps({'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}, sort_keys=True))
+          sys.stdout.write(data.decode('utf-8'))
+          PYCODE
