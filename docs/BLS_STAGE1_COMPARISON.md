@@ -172,3 +172,61 @@ workflow/timeout contracts also passed independent review. The first actual
 seven-job hosted run and its exact source/binary/race receipts remain required. A green preparation job or Python suite cannot satisfy those
 gates. The initial publication target is the BLS research branch, not main;
 there is no deployment or release authorization implied by this document.
+
+
+## First hosted preflight failure and explicit converter successor
+
+The first Stage1 run, published research d34cb5f,
+[43293193295 / 131444510714](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43293193295/job/131444510714),
+passed Go 1.26.11 and 45 Python contracts, then stopped after about 0.15 seconds
+with identity_file_missing and null progress. It did NOT reach runner metadata,
+namespace creation, compilation or BLS tests. The six other jobs passed. The
+failed run is retained, not rerun or reclassified as a race result.
+
+Preserved full hosted log SHA-256:
+ffe1380a10a09f80fcb6cdab879021a292c5a4337dc317f639a4122236c02d44.
+Its safe failure JSON was 141 bytes, SHA-256
+cf7dab6053effd32d253b3cce426e14c22a835a5e0b85ad4d28e0a74ce41600f.
+The run's final hosted manifest SHA-256 is
+df67f21bc23a1b2f05087b72e1262437c6fb43b82b4371846230d1a82569d05c.
+The receipt did not name the missing file, so the exact missing item on that
+runner is NOT claimed as observed.
+
+Independent official Go 1.26.11 source inspection established a flawed layout
+assumption: src/cmd/distpack/pack.go (blob
+09c3a331195f58ed6f275ca3ed2ca608248dfb4c) does not ship standalone test2json in the
+binary distribution. src/cmd/go/internal/tool/tool.go (blob
+92e8a803105f8d1b8f6c9f6fcc530f4f65475aef) can build a missing builtin tool on demand.
+The old runner incorrectly required pkg/tool/linux_amd64/test2json to exist.
+That is a confirmed design error, not proof of the unnamed hosted missing item.
+
+The successor keeps strict file checks for Go, VERSION, Python and platform
+executables, and for Go asm/compile/link/cgo. A missing bootstrap file still
+fails. Each check first records only a fixed logical tool name in safe progress,
+never its absolute path. No other missing tool triggers automatic construction.
+
+For test2json ONLY, preparation runs an offline-resolution, metadata-only
+`go list -deps -json cmd/test2json`. All selected packages must be GOROOT-owned,
+non-test declarations with no external Module and source paths inside the fixed
+GOROOT/src. Imports, selected file hashes and discovered license file hashes are
+bound in a separate non-race helper inventory. This preparatory step does not
+compile or execute the converter. It does not access the module proxy or DB.
+
+Inside the already verified offline namespace, the exact helper graph is
+rechecked. `go build -mod=readonly -ldflags=-extldflags=-Wl,-z,noexecstack`
+builds cmd/test2json explicitly to a private executable with a 120-second cap
+within the EXISTING 900-second inner budget. Its ELF and bytes/SHA are checked;
+the six-test binaries are then built and executed through this converter's
+explicit path, never through `go tool test2json`. Helper source/dependency
+metadata and the converter binary are checked again afterward. Public helper
+fields are strictly projected and bound to the host's original metadata receipt.
+
+This is our explicit, checked build strategy from the same fixed relay temporary
+root. It is not claimed to reproduce Go's internal builtin policy, which can
+force host settings, ignore module roots and choose different debug/cache flags.
+Host and target remain fixed Linux/amd64. Unexpected helper origin, layout,
+module resolution or build behavior fails closed with no fallback. The existing
+seven-job workflow and its 25-minute Stage1 limit are unchanged by this repair.
+No local Go/network/build/namespace execution or hosted successor result is
+claimed by its Python tests. The race classifier and frozen six materials are
+unchanged; any additional failure-diagnostic frame categories remain future work.

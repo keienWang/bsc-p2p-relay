@@ -15,6 +15,18 @@ import bls_stage0_inventory as base
 from test_bls_cache_race_evidence import stream, race_block, ROOT as RACE_ROOT
 
 
+def helper_objects(go):
+    objects = []
+    for name, filename, imports in (("internal/test2json", "json.go", []),
+                                     (runner.HELPER_PACKAGE, "main.go", ["internal/test2json"])):
+        directory = go.parent.parent / "src" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / filename).write_text("DO_NOT_EXPORT_HELPER_SOURCE")
+        objects.append({"ImportPath": name, "Goroot": True, "Name": "main" if name == runner.HELPER_PACKAGE else "test2json",
+                        "Dir": str(directory), "GoFiles": [filename], "Imports": imports})
+    return objects
+
+
 class GraphFake:
     def __init__(self, state, go, mutate=None):
         self.state, self.go, self.mutate = state, go, mutate
@@ -118,7 +130,7 @@ class RunnerContracts(unittest.TestCase):
         state.mkdir()
         version_file = self.go.parent.parent / "VERSION"
         version_file.write_text(base.GO_VERSION + "\n")
-        for name in ("compile", "link", "cgo", "test2json"):
+        for name in ("asm", "compile", "link", "cgo"):
             path = self.go.parent.parent / "pkg/tool/linux_amd64" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("mock tool never run")
@@ -132,6 +144,10 @@ class RunnerContracts(unittest.TestCase):
                          "crypto/bls/blst/public_key.go": b"mock original public"}
         def fake(state, label, args, env, budget, timeout=90, allow_failure=False, cwd=None):
             calls.append(label)
+            if label == "prepare-test2json-graph":
+                self.assertEqual(env["GOPROXY"], "off")
+                self.assertEqual(env["CC"], str(tools / "gcc"))
+                return "\n".join(json.dumps(v) for v in helper_objects(self.go)), {"exit_code": 0}
             self.assertEqual(env["GOPROXY"], "https://proxy.golang.org")
             if label == "prepare-go-env":
                 value = {k: env.get(k, "") for k in base.ENV_KEYS}
@@ -167,6 +183,11 @@ class RunnerContracts(unittest.TestCase):
              mock.patch.object(os, "getgid", return_value=1001), mock.patch.dict(os.environ, {}, clear=True), \
              mock.patch.object(runner.shutil, "which", side_effect=lambda name: str(tools / name)):
             receipt = runner.prepare(self.repo, state, self.go)
+        self.assertIn("prepare-test2json-graph", calls)
+        self.assertNotIn("test2json-compile", calls)
+        self.assertNotIn("go-test2json", receipt["tool_paths"])
+        self.assertIn("go-asm", receipt["tool_paths"])
+        self.assertEqual(receipt["helper_graph"]["package"], runner.HELPER_PACKAGE)
         self.assertIn("prepare-verify-origin", calls)
         self.assertLess(calls.index("prepare-verify-origin"), calls.index("patch-apply"))
         self.assertEqual(receipt["identity"]["copied_inputs"], base.INPUTS)
@@ -178,6 +199,47 @@ class RunnerContracts(unittest.TestCase):
             self.assertEqual(base.sha((state / (side + "-prysm") / runner.FIXTURE).read_bytes()), runner.FIXTURE_SHA)
         self.assertNotEqual(receipt["identity"]["derived"]["baseline"]["manifest_sha256"],
                             receipt["identity"]["derived"]["candidate"]["manifest_sha256"])
+
+    def test_missing_bootstrap_still_fails_with_only_logical_tool_name(self):
+        missing = self.state / "private-secret-path" / "compile"
+        with self.assertRaisesRegex(base.GateError, "identity_file_missing"):
+            runner.tool_hashes(self.state, {"go-compile": str(missing)})
+        progress = json.loads((self.state / "progress.json").read_text())
+        public = runner.export_progress(progress, None)
+        self.assertEqual(public["current_tool"], "go-compile")
+        self.assertNotIn("private-secret-path", json.dumps(public))
+        with self.assertRaisesRegex(base.GateError, "tool_identity_labels"):
+            runner.tool_hashes(self.state, {"/private/secret": str(missing)})
+        with self.assertRaises(base.GateError):
+            runner.export_progress(dict(progress, current_tool="/private/secret"), None)
+
+    def test_helper_graph_binds_only_selected_goroot_files_without_executing(self):
+        objects = helper_objects(self.go)
+        with mock.patch.object(runner, "command", return_value=("\n".join(json.dumps(v) for v in objects), {})) as call:
+            graph = runner.collect_helper_graph(self.state, self.go, {"GOPROXY": "off"}, self.budget, "prepare-test2json-graph")
+        self.assertEqual(call.call_args.args[2], [str(self.go), "list", "-deps", "-json", "cmd/test2json"])
+        self.assertNotIn("-race", call.call_args.args[2])
+        self.assertEqual({p["id"] for p in graph["packages"]}, {"internal/test2json", "cmd/test2json"})
+        self.assertNotIn(str(self.state), json.dumps(graph))
+        self.assertNotIn("DO_NOT_EXPORT", json.dumps(graph))
+        self.assertFalse(graph["native_include_closure_proven"])
+
+    def test_helper_graph_rejects_external_module_escape_test_or_online_context(self):
+        original = helper_objects(self.go)
+        changes = [lambda p: p[0].update(Module={"Path": "example.com/unsafe"}),
+                   lambda p: p[0].update(Goroot=False), lambda p: p[0].update(Dir=str(self.state)),
+                   lambda p: p[0].update(GoFiles=["../outside.go"]),
+                   lambda p: p[0].update(ForTest="unexpected"), lambda p: p[0].update(Error={"Err": "/private"}),
+                   lambda p: p[1].update(Name="notmain"), lambda p: p[1]["Imports"].append("unselected/import"),
+                   lambda p: p.append(dict(p[0]))]
+        for change in changes:
+            objects = json.loads(json.dumps(original))
+            change(objects)
+            with self.subTest(), mock.patch.object(runner, "command", return_value=("\n".join(json.dumps(v) for v in objects), {})), self.assertRaises(base.GateError):
+                runner.collect_helper_graph(self.state, self.go, {"GOPROXY": "off"}, self.budget, "prepare-test2json-graph")
+        with mock.patch.object(runner, "command") as command, self.assertRaises(base.GateError):
+            runner.collect_helper_graph(self.state, self.go, {"GOPROXY": "https://proxy.golang.org"}, self.budget, "prepare-test2json-graph")
+        command.assert_not_called()
 
     def test_tree_copy_does_not_modify_donor_and_binds_every_file(self):
         source = self.state / "baseline-prysm"
@@ -296,7 +358,9 @@ class RunnerContracts(unittest.TestCase):
         self.assertIn("GORACE=" + runner.events.GORACE, command)
         self.assertNotIn("--as", " ".join(command))
         for baseline in (True, False):
-            argv = runner.test_command(self.go, self.state / "example.test", baseline)
+            argv = runner.test_command(self.state / "test2json", self.state / "example.test", baseline)
+            self.assertEqual(argv[0], str(self.state / "test2json"))
+            self.assertNotIn("tool", argv)
             self.assertIn("-test.count=1", argv)
             self.assertIn("-test.timeout=50s", argv)
             self.assertIn("-test.run=" + (runner.events.BASELINE_PATTERN if baseline else runner.events.CANDIDATE_PATTERN), argv)
@@ -326,19 +390,32 @@ class RunnerContracts(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(err.getvalue(), "BLS_STAGE1_ERROR:unknown_stage1_argument\n")
 
-    def inner_mock(self, outcomes):
+    def inner_mock(self, outcomes, helper_failure=None):
         tools = {"gcc": "/mock/gcc", "ip": "/mock/ip"}
         graph = {"packages": [], "mock": "safe"}
         donor = {"manifest_sha256": "a" * 64, "file_count": 1, "bytes": 1}
         receipt = {"go": str(self.go), "uid": 1001, "gid": 1001, "tool_paths": tools,
                    "identity": {"mock": "identity"}, "graphs": {s: graph for s in runner.SIDES},
+                   "helper_graph": {"packages": [], "mock": "helper"},
                    "donor": str(self.state / "donor"), "donor_manifest": donor}
         (self.state / "prepared.json").write_text(json.dumps(receipt))
-        calls = []
+        calls, helper_reads = [], [0]
+        def helper_graph(*args, **kwargs):
+            if helper_failure == "graph" and args[-1] == "inner-post-test2json-graph":
+                return {"packages": [], "mock": "changed"}
+            return receipt["helper_graph"]
+        def binary_hash(path):
+            if path.name == "test2json":
+                helper_reads[0] += 1
+                if helper_failure == "binary" and helper_reads[0] > 1:
+                    return {"sha256": "d" * 64, "bytes": 3}
+            return {"sha256": "b" * 64, "bytes": 3}
         def proof(code):
             return {"exit_code": code, "raw_private_bytes": 123, "raw_private_sha256": "c" * 64, "elapsed_milliseconds": 1}
         def command(state, label, args, env, budget, timeout=90, allow_failure=False, cwd=None):
             calls.append(label)
+            if helper_failure == "compile" and label == "test2json-compile":
+                raise base.GateError("command_failed_test2json-compile")
             if label.startswith("inner-"):
                 return "[]", proof(0)
             if "compile" in label:
@@ -352,7 +429,8 @@ class RunnerContracts(unittest.TestCase):
             return stream(), proof(0)
         with mock.patch.object(runner, "command", command), mock.patch.object(runner, "collect_graph", return_value=graph), \
              mock.patch.object(runner, "verify_go"), mock.patch.object(runner, "identity", return_value=receipt["identity"]), \
-             mock.patch.object(runner, "hash_file", return_value={"sha256": "b" * 64, "bytes": 3}), \
+             mock.patch.object(runner, "collect_helper_graph", side_effect=helper_graph), \
+             mock.patch.object(runner, "hash_file", side_effect=binary_hash), \
              mock.patch.object(runner, "tree_manifest", return_value=donor), \
              mock.patch("elf_stack_policy.inspect_file", return_value={"sha256": "b" * 64, "policy_enforced": True,
                  "elf_class": 64, "byte_order": "little", "machine": 62, "elf_type": 2, "program_header_count": 9,
@@ -366,6 +444,7 @@ class RunnerContracts(unittest.TestCase):
 
     def test_inner_both_builds_before_fresh_attempts_and_candidate(self):
         calls = self.inner_mock(["quiet", "quiet", "red"])
+        self.assertLess(calls.index("test2json-compile"), calls.index("baseline-compile"))
         self.assertLess(calls.index("candidate-compile"), calls.index("baseline-test-1"))
         self.assertEqual([x for x in calls if x.startswith("baseline-test-")],
                          ["baseline-test-1", "baseline-test-2", "baseline-test-3"])
@@ -393,6 +472,10 @@ class RunnerContracts(unittest.TestCase):
             lambda v: v["policy"].update(raw="SENTINEL_PRIVATE_SOURCE"),
             lambda v: v["post_graph_sha256"].update(raw="SENTINEL_PRIVATE_SOURCE"),
             lambda v: v["binary_identity_before_and_after"]["candidate"].update(bytes=True),
+            lambda v: v["helper_tool"].update(raw="SENTINEL_PRIVATE_SOURCE"),
+            lambda v: v["helper_tool"]["graph"].update(raw="SENTINEL_PRIVATE_SOURCE"),
+            lambda v: v["helper_tool"]["binary"].update(path="/private/SENTINEL"),
+            lambda v: v["helper_tool"]["compile_receipt"].update(exit_code=1),
         ]
         for mutation in mutations:
             bad = json.loads(json.dumps(value))
@@ -464,6 +547,13 @@ class RunnerContracts(unittest.TestCase):
             self.assertNotIn("SENTINEL", raw)
             self.assertEqual(json.loads(raw)["gate_code"], "unsafe_progress_rejected")
             self.assertEqual(json.loads(line.split(" ", 1)[1])["sha256"], base.sha(raw.encode()))
+
+    def test_helper_build_or_post_identity_failure_cannot_be_target_red(self):
+        for failure, code in (("compile", "command_failed_test2json-compile"),
+                              ("graph", "helper_graph_changed"), ("binary", "helper_binary_changed")):
+            with self.subTest(failure=failure), self.assertRaisesRegex(base.GateError, "^" + code + "$"):
+                self.inner_mock(["red"], helper_failure=failure)
+            self.assertFalse((self.state / "result.json").exists())
 
     def test_inner_stops_after_first_valid_red(self):
         calls = self.inner_mock(["red"])

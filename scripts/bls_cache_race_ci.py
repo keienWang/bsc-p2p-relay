@@ -34,6 +34,9 @@ MAX_TREE_BYTES = 512 * 1024 * 1024
 MAX_TREE_FILES = 20000
 MAX_BINARY_BYTES = 256 * 1024 * 1024
 MAX_REPORT_BYTES = 4 * 1024 * 1024
+TOOL_LABELS = {"go", "python", "goroot_version", "git", "gcc", "as", "ld", "sudo", "timeout",
+               "unshare", "setpriv", "ip", "prlimit", "go-asm", "go-compile", "go-link", "go-cgo"}
+HELPER_PACKAGE = "cmd/test2json"
 RUNNER_FILES = ("scripts/bls_cache_race_ci.py", "scripts/bls_cache_race_evidence.py",
                 "scripts/bls_stage0_inventory.py", "scripts/scanner_redgreen_ci.py",
                 "scripts/scanner_synthetic_ci.py", "scripts/elf_stack_policy.py")
@@ -53,6 +56,15 @@ def hash_file(path, maximum=MAX_BINARY_BYTES):
             require(total <= maximum, "identity_file_limit")
             digest.update(part)
     return {"sha256": digest.hexdigest(), "bytes": total}
+
+
+def tool_hashes(state, paths):
+    require(isinstance(paths, dict) and set(paths) <= TOOL_LABELS, "tool_identity_labels")
+    result = {}
+    for name, path in paths.items():
+        checkpoint(state, current_tool=name)
+        result[name] = hash_file(Path(path))
+    return result
 
 
 def tree_manifest(root, deadline):
@@ -280,6 +292,44 @@ def collect_graph(state, side, go, env, budget, stage):
             "hashicorp_selected": hashicorp}
 
 
+def collect_helper_graph(state, go, env, budget, label):
+    require(env.get("GOPROXY") == "off", "helper_requires_offline_resolution")
+    raw, _ = command(state, label, [str(go), "list", "-deps", "-json", HELPER_PACKAGE], env, budget, 90)
+    objects = base.stream_json(raw)
+    root = go.parent.parent
+    seen, records, directories = set(), [], {root}
+    file_budget, count = {"bytes": 0}, 0
+    for obj in objects:
+        require(not obj.get("Module") and obj.get("Goroot") is True and not obj.get("ForTest") and
+                not obj.get("Error") and not obj.get("DepsErrors") and not obj.get("Incomplete"), "helper_package_origin")
+        name = base.module_name(obj.get("ImportPath"))
+        require(name not in seen, "helper_duplicate_package")
+        seen.add(name)
+        directory = Path(obj.get("Dir", "")).resolve()
+        require(directory.is_dir() and directory.is_relative_to(root / "src"), "helper_source_escape")
+        directories.add(directory)
+        imports = [base.module_name(x) for x in obj.get("Imports", [])]
+        mapping = {base.module_name(k): base.module_name(v) for k, v in obj.get("ImportMap", {}).items()}
+        files = []
+        for field in base.FILE_FIELDS:
+            for relative in obj.get(field, []):
+                item = base.file_record(root, directory / base.relative(relative), file_budget, budget.deadline)
+                item["role"] = field
+                files.append(item)
+                count += 1
+                require(count <= 4096, "helper_source_limit")
+        require(files, "helper_sources_missing")
+        if name == HELPER_PACKAGE:
+            require(obj.get("Name") == "main", "helper_not_command")
+        records.append({"id": name, "imports": imports, "import_map": mapping, "files": files})
+    require(HELPER_PACKAGE in seen, "helper_command_missing")
+    for rec in records:
+        require(all(rec["import_map"].get(x, x) == "C" or rec["import_map"].get(x, x) in seen for x in rec["imports"]), "helper_unresolved_import")
+    return {"scope": "goroot_test2json_nonrace_declarations", "package": HELPER_PACKAGE,
+            "packages": records, "found_license_files": base.found_licenses(root, directories, file_budget, budget.deadline),
+            "native_include_closure_proven": False}
+
+
 def graph_fingerprint(graph):
     # Generated testmain can become materialized after compilation. Keep that
     # evidence in each inventory, but compare every static declaration exactly.
@@ -296,7 +346,7 @@ def safe_tree(manifest):
 def identity(root, state, tool_paths, deadline):
     return {"repository_inputs": base.input_hashes(root), "material": verify_material(root),
             "runner_sources": {name: base.sha(base.read_file(root, name)) for name in RUNNER_FILES},
-            "tools": {name: hash_file(Path(path)) for name, path in tool_paths.items()},
+            "tools": tool_hashes(state, tool_paths),
             "derived": {side: safe_tree(tree_manifest(state / (side + "-prysm"), deadline)) for side in SIDES},
             "private_modfiles": {side + extension: base.sha(base.read_file(state / "work", side + extension))
                                  for side in SIDES for extension in (".mod", ".sum")},
@@ -330,15 +380,20 @@ def prepare(root, state, go):
     tool_paths = {"go": str(go), "python": str(Path(sys.executable).resolve()),
                   "goroot_version": str(go.parent.parent / "VERSION")}
     for name in ("git", "gcc", "as", "ld", "sudo", "timeout", "unshare", "setpriv", "ip", "prlimit"):
+        checkpoint(state, current_tool=name)
         value = shutil.which(name)
         require(value is not None, "missing_platform_tool")
         tool_paths[name] = str(Path(value).resolve())
-    for name in ("compile", "link", "cgo", "test2json"):
+    for name in ("asm", "compile", "link", "cgo"):
         tool_paths["go-" + name] = str(go.parent.parent / "pkg/tool/linux_amd64" / name)
-    before_tools = {k: hash_file(Path(v)) for k, v in tool_paths.items()}
+    before_tools = tool_hashes(state, tool_paths)
     env = environment(go, state, False)
     env["CC"] = tool_paths["gcc"]
     verify_go(state, go, env, budget, "prepare-go-env")
+    # Go 1.26 binary distributions omit standalone test2json. Metadata only
+    # here; its explicit build happens later inside the offline namespace.
+    helper_env = dict(env, GOPROXY="off")
+    helper_graph = collect_helper_graph(state, go, helper_env, budget, "prepare-test2json-graph")
     # Explicit pins, then exact package metadata may fetch only ordinary locked
     # module sources from the same proxy. No vulnerability DB or direct fallback.
     pins = [name + "@" + pin[0] for name, pin in sorted(base.PINS.items())]
@@ -380,13 +435,13 @@ def prepare(root, state, go):
     require(raw.strip() == "all modules verified", "module_verification_output")
     require(tree_manifest(donor, budget.deadline) == original, "donor_modified")
     receipt = {"uid": os.getuid(), "gid": os.getgid(), "go": str(go), "tool_paths": tool_paths,
-               "donor": str(donor), "donor_manifest": safe_tree(original), "graphs": graphs,
+               "donor": str(donor), "donor_manifest": safe_tree(original), "graphs": graphs, "helper_graph": helper_graph,
                "identity": identity(root, state, tool_paths, budget.deadline)}
     require(receipt["identity"]["tools"] == before_tools, "preparation_tool_changed")
     require(receipt["identity"]["material"] == material, "preparation_material_changed")
     require(receipt["identity"]["copied_inputs"] == base.INPUTS, "copied_input_changed")
     (state / "prepared.json").write_bytes(canonical(receipt))
-    checkpoint(state, stage="prepared_metadata_only", graphs=graphs, identity=receipt["identity"],
+    checkpoint(state, stage="prepared_metadata_only", graphs=graphs, helper_graph=helper_graph, identity=receipt["identity"],
                donor_manifest=receipt["donor_manifest"], baseline_attempts=[])
     return receipt
 
@@ -394,9 +449,9 @@ def prepare(root, state, go):
 LINK_POLICY = "-extldflags=-Wl,-z,noexecstack"
 
 
-def test_command(go, binary, baseline):
+def test_command(converter, binary, baseline):
     pattern = events.BASELINE_PATTERN if baseline else events.CANDIDATE_PATTERN
-    return [str(go), "tool", "test2json", "-t", "-p", events.PACKAGE, str(binary),
+    return [str(converter), "-t", "-p", events.PACKAGE, str(binary),
             "-test.v=test2json", "-test.count=1", "-test.timeout=50s", "-test.run=" + pattern]
 
 
@@ -438,6 +493,18 @@ def inner(root, state):
     checkpoint(state, stage="offline_graphs_verified", graphs=before_graphs)
     binaries, compile_receipts, elf_records = {}, {}, {}
     from elf_stack_policy import inspect_file
+    helper_graph = collect_helper_graph(state, go, env, budget, "inner-test2json-graph")
+    require(helper_graph == receipt["helper_graph"], "helper_graph_changed")
+    converter = state / "test2json"
+    _, helper_compile = command(state, "test2json-compile", [str(go), "build", "-mod=readonly",
+                                "-ldflags=" + LINK_POLICY, "-o", str(converter), HELPER_PACKAGE], env, budget, 120)
+    helper_binary = hash_file(converter)
+    helper_info = inspect_file(converter)
+    require(helper_info["sha256"] == helper_binary["sha256"] and helper_info["policy_enforced"], "helper_elf_policy")
+    helper_tool = {"package": HELPER_PACKAGE, "build_mode": "nonrace_fixed_goroot",
+                   "graph": helper_graph, "binary": helper_binary,
+                   "elf": {key: helper_info[key] for key in ELF_FIELDS}, "compile_receipt": helper_compile}
+    checkpoint(state, helper_tool=helper_tool)
     for side in SIDES:
         binary = state / (side + ".test")
         _, compile_receipts[side] = command(state, side + "-compile", [str(go), "test", "-modfile=" + side + ".mod", "-c", "-race",
@@ -451,20 +518,22 @@ def inner(root, state):
     # Both binaries must be built before either is executed. Only a fully valid
     # quiet pass permits another baseline process; unrelated failure stops here.
     for index in range(1, 4):
-        raw, execution = command(state, "baseline-test-" + str(index), test_command(go, state / "baseline.test", True), env, budget, 60, True)
+        raw, execution = command(state, "baseline-test-" + str(index), test_command(converter, state / "baseline.test", True), env, budget, 60, True)
         result = events.classify(raw, execution["exit_code"], True, str(state / "baseline-prysm"))
         attempts.append({"attempt": index, "execution": execution, "semantic": result})
         checkpoint(state, stage="baseline_executed", baseline_attempts=attempts)
         if result["classification"] == "target_cache_race":
             break
     require(attempts[-1]["semantic"]["classification"] == "target_cache_race", "baseline_not_reproduced")
-    raw, execution = command(state, "candidate-tests", test_command(go, state / "candidate.test", False), env, budget, 60, True)
+    raw, execution = command(state, "candidate-tests", test_command(converter, state / "candidate.test", False), env, budget, 60, True)
     candidate = {"execution": execution, "semantic": events.classify(raw, execution["exit_code"], False, str(state / "candidate-prysm"))}
     checkpoint(state, stage="candidate_executed", candidate=candidate)
     after_graphs = {side: collect_graph(state, side, go, env, budget, "inner-post") for side in SIDES}
     require(all(graph_fingerprint(before_graphs[s]) == graph_fingerprint(after_graphs[s]) for s in SIDES), "execution_graph_changed")
     require(identity(root, state, receipt["tool_paths"], budget.deadline) == receipt["identity"], "inner_post_identity")
     require(all(hash_file(state / (s + ".test")) == binaries[s] for s in SIDES), "test_binary_changed")
+    require(hash_file(converter) == helper_binary, "helper_binary_changed")
+    require(collect_helper_graph(state, go, env, budget, "inner-post-test2json-graph") == helper_graph, "helper_graph_changed")
     require(safe_tree(tree_manifest(Path(receipt["donor"]), budget.deadline)) == receipt["donor_manifest"], "donor_modified")
     result = {"schema": "bls-stage1-private-comparison-v1", "status": "target_red_and_six_candidate_passes",
               "prior_stage0_sha256": STAGE0_SHA, "not_production_acceptance": True, "license_approval": False,
@@ -472,7 +541,7 @@ def inner(root, state):
               "post_graph_sha256": {s: base.sha(canonical(after_graphs[s])) for s in SIDES},
               "identity": receipt["identity"], "donor_manifest": receipt["donor_manifest"],
               "binary_identity_before_and_after": binaries, "compile_receipts": compile_receipts, "elf": elf_records,
-              "baseline_attempts": attempts, "candidate": candidate,
+              "baseline_attempts": attempts, "candidate": candidate, "helper_tool": helper_tool,
               "isolation": {"nonroot": True, "zero_capabilities": True, "no_new_privileges": True,
                             "network_and_pid_namespace_replaced": True, "down_loopback_only": True, "routes_empty": True},
               "policy": {"go": base.GO_VERSION, "gorace": events.GORACE, "link_policy": LINK_POLICY,
@@ -486,13 +555,14 @@ def inner(root, state):
 ELF_FIELDS = ("elf_class", "byte_order", "machine", "elf_type", "program_header_count", "gnu_stack_flags", "load_flags")
 COMMAND_LABELS = {"prepare-go-env", "prepare-pins", "prepare-verify-origin", "prepare-verify-modules",
                   "patch-check", "patch-apply", "inner-links", "inner-routes4", "inner-routes6", "inner-go-env",
-                  "outer-namespace", "candidate-tests"} | {
+                  "outer-namespace", "candidate-tests", "prepare-test2json-graph", "inner-test2json-graph",
+                  "inner-post-test2json-graph", "test2json-compile"} | {
     phase + "-" + side + "-" + kind for phase in ("prepare", "inner-pre", "inner-post")
     for side in SIDES for kind in ("graph", "modules")} | {
     side + "-compile" for side in SIDES} | {"baseline-test-" + str(n) for n in range(1, 4)}
 PROGRESS_KEYS = {"schema", "status", "license_approval", "native_include_closure_proven", "stage", "graphs", "identity",
                  "donor_manifest", "baseline_attempts", "compile_receipts", "binary_identity", "elf", "candidate",
-                 "current_command", "last_command", "command_failure"}
+                 "current_command", "last_command", "command_failure", "current_tool", "helper_graph", "helper_tool"}
 
 
 def exact_keys(value, keys):
@@ -597,6 +667,19 @@ def export_graphs(value, receipt):
     return result
 
 
+def export_helper(value, receipt):
+    exact_keys(value, ("package", "build_mode", "graph", "binary", "elf", "compile_receipt"))
+    require(value["package"] == HELPER_PACKAGE and value["build_mode"] == "nonrace_fixed_goroot", "export_helper_identity")
+    require(receipt is not None and value["graph"] == receipt["helper_graph"], "export_helper_graph")
+    # Reuse the exact existing scalar validators, with no path-bearing records.
+    binary = export_binaries({side: value["binary"] for side in SIDES})["baseline"]
+    elf = export_elf({side: value["elf"] for side in SIDES})["baseline"]
+    compilation = export_receipt(value["compile_receipt"])
+    require(compilation["exit_code"] == 0, "export_helper_compile")
+    return {"package": HELPER_PACKAGE, "build_mode": "nonrace_fixed_goroot", "graph": receipt["helper_graph"],
+            "binary": binary, "elf": elf, "compile_receipt": compilation}
+
+
 def export_progress(value, receipt):
     require(isinstance(value, dict) and set(value) <= PROGRESS_KEYS, "export_progress_shape")
     require(value.get("schema") == "bls-stage1-progress-v1" and value.get("status") == "incomplete_not_acceptance" and
@@ -606,6 +689,14 @@ def export_progress(value, receipt):
         if key in value:
             require(receipt is not None and value[key] == receipt[key], "export_origin_mismatch")
             result[key] = receipt[key]
+    if "current_tool" in value:
+        require(value["current_tool"] in TOOL_LABELS, "export_tool_label")
+        result["current_tool"] = value["current_tool"]
+    if "helper_graph" in value:
+        require(receipt is not None and value["helper_graph"] == receipt["helper_graph"], "export_helper_graph")
+        result["helper_graph"] = receipt["helper_graph"]
+    if "helper_tool" in value:
+        result["helper_tool"] = export_helper(value["helper_tool"], receipt)
     if "graphs" in value:
         result["graphs"] = export_graphs(value["graphs"], receipt)
     if "stage" in value:
@@ -644,7 +735,7 @@ def export_progress(value, receipt):
 def export_success(value, receipt):
     keys = {"schema", "status", "prior_stage0_sha256", "not_production_acceptance", "license_approval",
             "native_include_closure_proven", "graphs", "post_graph_sha256", "identity", "donor_manifest",
-            "binary_identity_before_and_after", "compile_receipts", "elf", "baseline_attempts", "candidate", "isolation", "policy"}
+            "binary_identity_before_and_after", "compile_receipts", "elf", "baseline_attempts", "candidate", "isolation", "policy", "helper_tool"}
     exact_keys(value, keys)
     require(value["schema"] == "bls-stage1-private-comparison-v1" and value["status"] == "target_red_and_six_candidate_passes" and
             value["prior_stage0_sha256"] == STAGE0_SHA and value["not_production_acceptance"] is True and
@@ -658,7 +749,7 @@ def export_success(value, receipt):
             "network_and_pid_namespace_replaced": True, "down_loopback_only": True, "routes_empty": True}, "export_isolation")
     progress = {"schema": "bls-stage1-progress-v1", "status": "incomplete_not_acceptance", "license_approval": False,
                 "native_include_closure_proven": False, **{k: value[k] for k in (
-                    "graphs", "identity", "donor_manifest", "compile_receipts", "elf", "baseline_attempts", "candidate")},
+                    "graphs", "identity", "donor_manifest", "compile_receipts", "elf", "baseline_attempts", "candidate", "helper_tool")},
                 "binary_identity": value["binary_identity_before_and_after"]}
     checked = export_progress(progress, receipt)
     export_attempts(checked["baseline_attempts"], complete=True)
@@ -666,7 +757,7 @@ def export_success(value, receipt):
     for digest_value in value["post_graph_sha256"].values():
         digest(digest_value)
     result = dict(value)
-    result.update({k: checked[k] for k in ("graphs", "identity", "donor_manifest", "compile_receipts", "elf", "baseline_attempts", "candidate")})
+    result.update({k: checked[k] for k in ("graphs", "identity", "donor_manifest", "compile_receipts", "elf", "baseline_attempts", "candidate", "helper_tool")})
     result["binary_identity_before_and_after"] = checked["binary_identity"]
     result["policy"] = expected_policy
     return result
@@ -732,6 +823,9 @@ SAFE_ERROR_CODES = frozenset({
     'export_generated_presence',
     'export_graph_mismatch',
     'export_graph_without_origin',
+    'export_helper_compile',
+    'export_helper_graph',
+    'export_helper_identity',
     'export_integer',
     'export_isolation',
     'export_missing_red',
@@ -745,6 +839,7 @@ SAFE_ERROR_CODES = frozenset({
     'export_status',
     'export_success_header',
     'export_test_exit',
+    'export_tool_label',
     'external_build_configuration',
     'external_target',
     'external_toolchain',
@@ -759,6 +854,18 @@ SAFE_ERROR_CODES = frozenset({
     'go_root_mismatch',
     'go_root_version_changed',
     'go_root_version_mismatch',
+    'helper_binary_changed',
+    'helper_command_missing',
+    'helper_duplicate_package',
+    'helper_elf_policy',
+    'helper_graph_changed',
+    'helper_not_command',
+    'helper_package_origin',
+    'helper_requires_offline_resolution',
+    'helper_source_escape',
+    'helper_source_limit',
+    'helper_sources_missing',
+    'helper_unresolved_import',
     'identity_file_limit',
     'identity_file_missing',
     'incomplete_tests',
@@ -892,6 +999,7 @@ SAFE_ERROR_CODES = frozenset({
     'test_text_package_mismatch',
     'test_text_runs_mismatch',
     'test_time_shape',
+    'tool_identity_labels',
     'tool_output_limit',
     'truncated_or_unframed_race',
     'unexpected_bls_wrapper',
