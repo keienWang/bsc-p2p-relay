@@ -2,7 +2,9 @@
 
 This is a patch-only research candidate, **not a replacement for the project's
 production scanner** and not evidence of a clean real vulnerability scan.
-The existing three CI jobs and scanner commands are unchanged.
+The scanner experiment does not replace the three existing scanner commands.
+The separate binary-metadata integration adds one read-only inspection step after
+the default build; the other original jobs are unchanged.
 
 Upstream is Go's `golang/vuln` at
 [`e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5`](https://github.com/golang/vuln/tree/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5)
@@ -136,3 +138,25 @@ whitespace checks. The exact diff bytes are also printed with strict UTF-8
 decoding for the CI log; a captured-output regression matches stdout to
 `format.diff` and checks the exact before/after hashes. These are local mock
 checks, not successful Go formatting or hosted execution evidence.
+
+## Verified hosted synthetic result and subsequent integration
+
+Historical candidate [4c26c2df](https://github.com/keienWang/bsc-p2p-relay/commit/4c26c2df41f669056dc793f62d1c6864e6be1b93),
+[run 43239303809](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43239303809),
+completed all four jobs and 55 steps successfully. Scanner job 131255052222 used
+Go 1.26.11 and reported 11 top-level synthetic tests, seven subtests and both
+packages passing, with no skipped or failed events. Its success receipt confirms
+a replaced network namespace and zero capabilities; all ten executed source
+hashes match preparation's normalized hashes. The decoded scanner log SHA-256 is
+`8116a768da5ee6417cc50c832920eb1582a525f35d0c96ddbcd595b2a04bcde0`.
+This verifies that specific candidate's selected synthetic suite, not an
+old-code-red/new-code-green comparison, a real advisory scan, complete relay test
+graph coverage, or production acceptance. Earlier failed formatting evidence is
+retained. Historical statements above describe checks at their respective stages.
+
+The following integration combines the unchanged scanner experiment with the
+independently reviewed binary metadata collector. It changes no runtime Go code,
+dependencies, patch payloads or selected tests. Its local validation consists of
+73 Python tests, the two documentation checkers, shell syntax, YAML and non-patch
+whitespace checks. No Go build, namespace, dependency download or hosted run was
+performed for this integration locally; its own hosted CI remains pending.

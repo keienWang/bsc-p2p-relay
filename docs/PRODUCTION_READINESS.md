@@ -29,6 +29,8 @@ Status: **NOT PRODUCTION READY**. This is a Stage 1 broadcast-core prototype. Th
 
 Prepared evidence includes the [targeted Herumi archive source and notice appendix](native-herumi/README.md) and a [no-transaction connection plan](native-herumi/NO_TRANSACTION_CONNECTION_PLAN.md). These are partial preparation, not completion of the gates above or authorization to run a network experiment.
 
+[Read-only binary metadata collection](BINARY_METADATA.md) binds future ELF observations to the exact built file. Historical Go 1.26.10 properties do not establish the current Go 1.26.11 executable's properties, and metadata collection alone does not complete a production gate.
+
 ## Separate Stage 2: verified head and transaction outcome
 
 The authenticated live capabilities below remain unimplemented. The offline commitment checker remains conditional on an unauthenticated supplied header. A separate first-epoch experiment authenticates genesis successors only through block 199, including a real mainnet block 1 fixture; it cannot follow the current chain. Neither completes these live verification gates:
