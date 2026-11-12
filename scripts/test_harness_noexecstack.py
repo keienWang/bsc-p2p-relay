@@ -15,14 +15,26 @@ import noexecstack_candidate as candidate
 from test_elf_noexecstack import elf_image
 
 
+def buildinfo(binary, *, trimpath):
+    # Relay settings reflect the first hosted Go 1.26.11 -trimpath output.
+    # Non-trimmed test settings follow pinned load/pkg.go and load/test.go.
+    path = 'cmd/bsc-relay' if trimpath else 'internal/nativecompat.test'
+    settings = ['-buildmode=exe', '-compiler=gc', 'CGO_ENABLED=1', 'GOOS=linux', 'GOARCH=amd64', 'GOAMD64=v1']
+    settings += ['-trimpath=true'] if trimpath else ['-ldflags=' + candidate.LINK_POLICY, '-race=true', '-tags=noexecstack',
+                  'CGO_CFLAGS="-O2 -g"', 'CGO_CPPFLAGS=', 'CGO_CXXFLAGS="-O2 -g"', 'CGO_LDFLAGS="-O2 -g"']
+    return f'{binary}: go1.26.11\n\tpath\tgithub.com/keienWang/bsc-p2p-relay/{path}\n' + ''.join(
+        '\tbuild\t' + setting + '\n' for setting in settings)
+
+
 class FakeRunner(candidate.Runner):
-    def __init__(self, root, baseline_stack=7, candidate_stack=6, fail='', empty='', mutate='', untracked=''):
+    def __init__(self, root, baseline_stack=7, candidate_stack=6, fail='', empty='', mutate='', untracked='', buildinfo_replace=None):
         super().__init__(root)
         self.calls = []
         self.baseline_stack = baseline_stack
         self.candidate_stack = candidate_stack
         self.fail, self.empty, self.mutate = fail, empty, mutate
         self.untracked = untracked
+        self.buildinfo_replace = buildinfo_replace or {}
         self.archive = root / 'module/bls/lib/linux/amd64/libbls384_256.a'
         self.archive.parent.mkdir(parents=True)
         self.archive.write_bytes(b'fake archive only')
@@ -52,7 +64,10 @@ class FakeRunner(candidate.Runner):
             output = pathlib.Path(args[-1]); data = bytearray(output.read_bytes())
             data[-1] ^= 1; output.write_bytes(data)
         if label.endswith('-buildinfo'):
-            return 'mock buildinfo ' + (candidate.LINK_POLICY if not label.startswith('baseline') else '')
+            text = buildinfo(args[-1], trimpath=label != 'herumi_fixture-buildinfo')
+            if label in self.buildinfo_replace:
+                text = text.replace(*self.buildinfo_replace[label])
+            return text
         if label == 'herumi-public-vectors': return '=== RUN   TestHerumiPublicVectors\n--- PASS: TestHerumiPublicVectors (0.01s)\nPASS\n'
         return 'mock output\n'
 
@@ -91,9 +106,65 @@ class HarnessNoexecstackTest(unittest.TestCase):
         labels = [x[0] for x in runner.calls]
         self.assertLess(labels.index('herumi_fixture-elf-programs'), labels.index('herumi-public-vectors'))
         self.assertIn('"canonical_child_worker_covered": false', output)
-        self.assertIn('result=', output)
+        receipt = json.loads(next(line[len('result='):] for line in output.splitlines() if line.startswith('result=')))
+        self.assertEqual(receipt['build_commands'], {'baseline': baseline, 'candidate': variant,
+                         'herumi_fixture': calls['herumi-test-build'][0]})
         self.assertTrue(all(limit <= 240 for _, _, limit in runner.calls))
         self.assertFalse(any('canonicalisolation' in ' '.join(args) for _, args, _ in runner.calls))
+
+    def test_trimmed_buildinfo_uses_observable_fields_not_an_omitted_ldflags_string(self):
+        text = buildinfo('relay', trimpath=True)
+        self.assertNotIn('-ldflags', text)
+        result = candidate.validate_buildinfo(text, 'relay', trimpath=True)
+        self.assertEqual(result['settings']['-trimpath'], 'true')
+        self.assertIn('trimpath omits ldflags', result['linker_policy_evidence'])
+        fixture = candidate.validate_buildinfo(buildinfo('fixture', trimpath=False), 'fixture', trimpath=False)
+        self.assertEqual(fixture['settings']['-ldflags'], candidate.LINK_POLICY)
+        self.assertEqual(fixture['settings']['CGO_CPPFLAGS'], '')
+
+    def test_buildinfo_identity_settings_and_trimpath_must_match(self):
+        text = buildinfo('relay', trimpath=True)
+        invalid = [text.replace('relay: go1.26.11', 'other: go1.26.11'),
+                   text.replace('go1.26.11', 'go1.26.10'), text.replace('cmd/bsc-relay', 'other'),
+                   text.replace('\tpath\t', '\tignored\t'), text + '\tpath\tduplicate\n',
+                   text.replace('\tbuild\t-compiler=gc\n', ''), text.replace('CGO_ENABLED=1', 'CGO_ENABLED=0'), text.replace('CGO_ENABLED=1', 'CGO_ENABLED='),
+                   text.replace('GOARCH=amd64', 'GOARCH=arm64'), text.replace('GOOS=linux', 'GOOS=darwin'),
+                   text.replace('-buildmode=exe', '-buildmode=pie'), text.replace('-trimpath=true', '-trimpath=false'),
+                   text.replace('\tbuild\t-trimpath=true\n', ''), text + '\tbuild\tGOOS=linux\n',
+                   text + '\tbuild\tbroken\n', text + '\tbuild\t-ldflags=' + candidate.LINK_POLICY + '\n']
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                candidate.validate_buildinfo(value, 'relay', trimpath=True)
+
+    def test_native_buildinfo_requires_exact_policy_not_a_substring_or_trimpath(self):
+        text = buildinfo('fixture', trimpath=False)
+        invalid = [text.replace('\tbuild\t-ldflags=' + candidate.LINK_POLICY + '\n', ''),
+                   text.replace(candidate.LINK_POLICY, candidate.LINK_POLICY + ',execstack'),
+                   text.replace('-race=true', '-race=false'), text.replace('-tags=noexecstack', '-tags=other'),
+                   text + '\tbuild\t-trimpath=true\n', text + '\tbuild\t-ldflags=' + candidate.LINK_POLICY + '\n',
+                   text.replace('\tbuild\t-ldflags=', '\tdep\t-ldflags=')]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                candidate.validate_buildinfo(value, 'fixture', trimpath=False)
+
+    def test_invalid_candidate_or_fixture_buildinfo_stops_before_execution(self):
+        for label, replacement in [('candidate-buildinfo', ('GOOS=linux', 'GOOS=darwin')),
+                                   ('herumi_fixture-buildinfo', ('-ldflags=' + candidate.LINK_POLICY, '-unrelated=value'))]:
+            with self.subTest(label=label):
+                runner = FakeRunner(self.root / label, buildinfo_replace={label: replacement})
+                with mock.patch.object(candidate, 'ARCHIVE_SHA', hashlib.sha256(runner.archive.read_bytes()).hexdigest()), \
+                     mock.patch.object(candidate, 'ARCHIVE_SIZE', runner.archive.stat().st_size), \
+                     mock.patch.object(candidate, 'tool_version'), \
+                     mock.patch.object(candidate.platform, 'system', return_value='Linux'), \
+                     mock.patch.object(candidate.platform, 'machine', return_value='x86_64'), \
+                     contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(ValueError):
+                    candidate.experiment(runner, self.work)
+                labels = [call[0] for call in runner.calls]
+                self.assertNotIn('herumi-public-vectors', labels)
+                self.assertNotIn('candidate-loopback-smoke', labels)
+                self.assertNotIn('result=', output.getvalue())
+                if label == 'candidate-buildinfo':
+                    self.assertNotIn('default-race-same-policy', labels)
 
     def test_baseline_already_nonexecutable_is_not_a_failure(self):
         _, output = self.exercise(baseline_stack=6)

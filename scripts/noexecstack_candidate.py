@@ -160,7 +160,40 @@ def tool_version(runner, label, args):
     require(text.strip(), f'{label}: missing version output')
 
 
-def metadata(runner, label, binary, enforce):
+def validate_buildinfo(text, binary, *, trimpath):
+    """Check observable Go 1.26.11 settings, not flags deliberately omitted by Go."""
+    lines = text.splitlines()
+    require(lines and lines[0] == f'{binary}: go1.26.11', 'buildinfo: wrong artifact or Go version')
+    expected_path = 'github.com/keienWang/bsc-p2p-relay/' + (
+        'cmd/bsc-relay' if trimpath else 'internal/nativecompat.test')
+    paths = [line[len('\tpath\t'):] for line in lines if line.startswith('\tpath\t')]
+    require(paths == [expected_path], 'buildinfo: missing, duplicate or wrong package path')
+    settings = {}
+    for line in lines:
+        if not line.startswith('\tbuild\t'):
+            continue
+        key, separator, value = line[len('\tbuild\t'):].partition('=')
+        require(separator and key and key not in settings, 'buildinfo: malformed or duplicate setting')
+        settings[key] = value
+    expected = {'-buildmode': 'exe', '-compiler': 'gc', 'CGO_ENABLED': '1', 'GOOS': 'linux', 'GOARCH': 'amd64'}
+    for key, value in expected.items():
+        require(settings.get(key) == value, 'buildinfo: missing or unexpected ' + key)
+    if trimpath:
+        require(settings.get('-trimpath') == 'true', 'buildinfo: relay requires trimpath=true')
+        # Go 1.26.11 load/pkg.go omits -ldflags under -trimpath (issue 52372).
+        # The exact build argv and final ELF/hash, not this omitted field, bind policy.
+        require('-ldflags' not in settings, 'buildinfo: trimmed relay unexpectedly records ldflags')
+    else:
+        require('-trimpath' not in settings, 'buildinfo: native fixture unexpectedly trimmed')
+        require(settings.get('-ldflags') == LINK_POLICY, 'buildinfo: native fixture missing exact linker policy')
+        require(settings.get('-race') == 'true' and settings.get('-tags') == 'noexecstack',
+                'buildinfo: native fixture missing race or exact research tag')
+    return {'path': expected_path, 'settings': settings,
+            'linker_policy_evidence': 'recorded build argv and checked ELF; trimpath omits ldflags'
+            if trimpath else 'exact recorded ldflags plus build argv and checked ELF'}
+
+
+def metadata(runner, label, binary, enforce, *, trimpath):
     before = inspect_file(binary, enforce=enforce)
     emit(label + '_before', before)
     for name, args in [
@@ -173,8 +206,8 @@ def metadata(runner, label, binary, enforce):
     ]:
         text = runner.run(label + '-' + name, args)
         require(text.strip(), f'{label}/{name}: missing metadata output')
-        if enforce and name == 'buildinfo':
-            require(LINK_POLICY in text, 'candidate buildinfo missing exact linker policy')
+        if name == 'buildinfo':
+            emit(label + '_buildinfo_contract', validate_buildinfo(text, binary, trimpath=trimpath))
     after = inspect_file(binary, enforce=enforce)
     require(after == before, label + ': binary changed during metadata collection')
     emit(label + '_after', after)
@@ -230,16 +263,19 @@ def experiment(runner, work):
     baseline = work / 'relay-baseline'
     candidate = work / 'relay-noexecstack'
     common = ['go', 'build', '-trimpath', '-buildvcs=false']
-    runner.run('baseline-build', common + ['-o', baseline, './cmd/bsc-relay'], 120)
-    baseline_info = metadata(runner, 'baseline', baseline, False)
-    runner.run('candidate-build', common + ['-ldflags=' + LINK_POLICY, '-o', candidate, './cmd/bsc-relay'], 120)
-    candidate_info = metadata(runner, 'candidate', candidate, True)
+    baseline_command = common + ['-o', str(baseline), './cmd/bsc-relay']
+    candidate_command = common + ['-ldflags=' + LINK_POLICY, '-o', str(candidate), './cmd/bsc-relay']
+    runner.run('baseline-build', baseline_command, 120)
+    baseline_info = metadata(runner, 'baseline', baseline, False, trimpath=True)
+    runner.run('candidate-build', candidate_command, 120)
+    candidate_info = metadata(runner, 'candidate', candidate, True, trimpath=True)
     runner.run('default-race-same-policy', ['go', 'test', '-race', '-ldflags=' + LINK_POLICY,
                '-count=1', '-timeout=180s', './...'], 240)
     fixture = work / 'herumi-public-vectors.test'
-    runner.run('herumi-test-build', ['go', 'test', '-c', '-race', '-tags=noexecstack',
-               '-ldflags=' + LINK_POLICY, '-o', fixture, './internal/nativecompat'], 90)
-    fixture_info = metadata(runner, 'herumi_fixture', fixture, True)
+    fixture_command = ['go', 'test', '-c', '-race', '-tags=noexecstack',
+                       '-ldflags=' + LINK_POLICY, '-o', str(fixture), './internal/nativecompat']
+    runner.run('herumi-test-build', fixture_command, 90)
+    fixture_info = metadata(runner, 'herumi_fixture', fixture, True, trimpath=False)
     native_output = runner.run('herumi-public-vectors', [fixture, '-test.v', '-test.run=^TestHerumiPublicVectors$',
                '-test.count=1', '-test.timeout=20s'], 30)
     validate_native_output(native_output)
@@ -255,6 +291,7 @@ def experiment(runner, work):
     require(not runner.run('untracked-after', ['git', 'ls-files', '--others', '--exclude-standard']).strip(), 'untracked files after experiment')
     emit('result', {'source_commit': source, 'source_tree': tree, 'link_policy': LINK_POLICY,
                    'baseline': baseline_info, 'candidate': candidate_info, 'herumi_fixture': fixture_info,
+                   'build_commands': {'baseline': baseline_command, 'candidate': candidate_command, 'herumi_fixture': fixture_command},
                    'default_race_same_policy': True, 'herumi_public_vectors_same_policy': True,
                    'loopback_smoke_same_candidate': True, 'canonical_child_worker_covered': False,
                    'scope': 'bounded Linux/amd64 experiment; not native safety or production approval'})

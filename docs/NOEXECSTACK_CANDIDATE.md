@@ -1,8 +1,10 @@
 # Linux/amd64 non-executable-stack research candidate
 
-Status: candidate source and local mock checks only until an independently
-reviewed hosted run supplies actual results. Default build flags, the existing
-four CI jobs, dependencies, prebuilt archives and runtime code are unchanged.
+Status: the first hosted candidate run stopped at an incorrect buildinfo
+assertion, after initial ELF inspection but before functional regressions. The
+corrected metadata contract still needs a complete hosted run. Default build
+flags, the existing four CI jobs, dependencies, prebuilt archives and runtime
+code are unchanged.
 
 ## Planned scope and budget
 
@@ -66,8 +68,56 @@ The final RWE header was measured, not inferred from the missing
 were not captured in that run. Readelf's version is not a substitute for the
 linker's version. These two historical observations do not isolate a Go
 regression, demonstrate exploitability or establish the current main artifact's
-permissions. The new candidate has no measured result merely because this
-experiment has been added.
+permissions. The first candidate attempt below supplies only its explicitly
+recorded partial observations, not a completed experiment.
+
+## First candidate attempt: metadata-contract failure
+
+[Job 131287799444 in run 43248560959](https://github.com/keienWang/bsc-p2p-relay/actions/runs/43248560959/job/131287799444)
+used source `97ec141287b84c07c32fbf9c582a3bdff66dfebc`, tree
+`41e459f7c063c64786940c928c2ec097f476da95`. Both relay builds exited 0.
+The baseline completed its metadata checks with the same 50,729,184-byte
+`afa71849f7d73969e55048218c6737d9044aec58a579ea540dd3d47e66ed4018`
+artifact and RWE stack recorded above. The candidate's **initial** independent
+ELF check reported a unique RW stack and LOAD flags R / RE / R / RW:
+
+- Candidate size: 50,729,184 bytes.
+- Initial candidate SHA-256: `a40432347222aec447eab0a8421f398a9cf4f11fbc8ee6f74c9def91730013e0`.
+- Its recorded build argv retained `-trimpath -buildvcs=false` and added exactly
+  `-ldflags=-extldflags=-Wl,-z,noexecstack`.
+- Host gcc: 13.3.0-6ubuntu2~24.04.1; driver-selected ld.bfd: 2.42.
+- Full decoded job log: 280,041 bytes, SHA-256
+  `d4f035a715dfa97249b9111d50f561f157858f71853a5d060abba606f761e800`.
+
+`go version -m` exited 0 and reported `-trimpath=true`, but no `-ldflags`.
+The harness then failed with `candidate buildinfo missing exact linker policy`.
+There was **no candidate after-check or final result receipt**, and the default
+race suite, Herumi fixture and candidate smoke did not run. This failed attempt
+is retained as a failure; the initial RW observation is not a compatibility pass.
+
+The cause is established by official Go 1.26.11 source, whose tag resolved to
+commit `26b4433366fce47e480679e0b5a30222b63996e0`:
+
+- [`load/pkg.go:2424-2471`](https://github.com/golang/go/blob/26b4433366fce47e480679e0b5a30222b63996e0/src/cmd/go/internal/load/pkg.go#L2424-L2471)
+  deliberately omits `-ldflags` and CGO flags when `-trimpath` is set, because
+  they may contain system paths. It separately records `-trimpath=true`.
+  Complete file: 126,442 bytes, SHA-256
+  `8ab6cf53b1674ef93d500b1ab07df3dc650fe003374ce14c31d992f899f4d339`.
+- [`load/test.go:272-305`](https://github.com/golang/go/blob/26b4433366fce47e480679e0b5a30222b63996e0/src/cmd/go/internal/load/test.go#L272-L305)
+  constructs the test main package and calls the same buildinfo logic. The
+  separate Herumi test build does not request `-trimpath`, so its buildinfo is
+  still required to record the exact requested linker policy.
+  Complete file: 27,020 bytes, SHA-256
+  `eda795c8e745df03c8265b9f030dc057900104dfa2df89cfc5112fc77b0dc42e`.
+
+The correction changes the metadata expectation, not compiler/linker flags or
+ELF policy. Relay buildinfo must identify the exact artifact, Go 1.26.11,
+package, build mode/compiler, linux/amd64, CGO=1 and `-trimpath=true`; omitted
+`-ldflags` is not invented. The untrimmed Herumi fixture must retain exact
+`-ldflags`, `-race=true` and `-tags=noexecstack`. Missing, conflicting or duplicate
+required settings fail closed. Recorded exact build commands, source commit/tree,
+artifact hashes and before/after ELF checks provide the policy binding; they do
+not claim byte-for-byte reproducible builds or complete actual linker traces.
 
 ## What the new experiment records and enforces
 
@@ -81,8 +131,10 @@ section tables are printed without modifying or executing the archive.
 
 For both relay outputs and the dedicated Herumi test executable, it records
 SHA-256, size, Go buildinfo/build ID, `file`, and full `readelf -hW/-lW/-dW`
-output. The candidate buildinfo must contain the exact linker policy. Regular,
-non-symlink input checks and before/after file identity/hash checks reject drift.
+output. Buildinfo is checked against the artifact-specific contract above. The
+final receipt also includes the exact build argv used for each inspected
+artifact. Regular, non-symlink input checks and before/after file identity/hash
+checks reject drift.
 The baseline is not executed. A baseline that already has RW stack permissions
 is a valid observation, not a failed experiment.
 
