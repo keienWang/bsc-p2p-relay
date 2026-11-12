@@ -26,3 +26,19 @@ BSC and the Go module graph include additional third-party components with their
 ## Pion STUN compatibility update
 
 The project-owned `compat/stunv2` adapter is GPL-3.0-or-later and forwards the subset of the STUN v2 public API consumed by pinned BSC to `github.com/pion/stun/v3 v3.1.7`, using DTLS v3.1.5. No Pion implementation is copied into the adapter. The Pion implementation retains its MIT license, reproduced for reference in `compat/stunv2/UPSTREAM_LICENSE.txt`. Other module notices remain applicable. This adapter is not a complete STUN v2 implementation.
+
+## Experimental Go vulnerability-scanner patches
+
+`research/scanner-synthetic` contains patch-only experimental work based on
+[`golang/vuln e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5`](https://github.com/golang/vuln/tree/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5),
+not an official scanner release or endorsed fix. The modified upstream files are
+`internal/vulncheck/source.go` (Copyright 2021 The Go Authors),
+`internal/vulncheck/packages.go` (Copyright 2023 The Go Authors), and
+`internal/scan/run.go` (Copyright 2022 The Go Authors).
+Their original BSD-3-Clause `LICENSE` and `PATENTS` are retained verbatim in that
+directory. New explicitly BSD-marked scanner contributions are Copyright 2026
+The bsc-p2p-relay contributors, under the complete terms in
+`research/scanner-synthetic/LICENSE.CONTRIBUTIONS`. This is an explicit scoped
+exception to the main relay source license, not a relicensing of the relay.
+No complete upstream fork or scanner binary is distributed by this directory;
+complete dependency and binary-license auditing remains outstanding.

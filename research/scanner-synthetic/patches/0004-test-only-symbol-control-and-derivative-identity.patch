@@ -1,0 +1,153 @@
+--- a/internal/scan/run.go
++++ b/internal/scan/run.go
+@@ -100,6 +100,7 @@
+ 	if bi, ok := debug.ReadBuildInfo(); ok {
+ 		scannerVersion(cfg, bi)
+ 	}
++	setDerivativeScannerIdentity(cfg)
+ 	if mod, err := client.LastModifiedTime(ctx); err == nil {
+ 		cfg.DBLastModified = &mod
+ 	}
+--- /dev/null
++++ b/internal/vulncheck/test_only_symbol_trace_test.go
+@@ -0,0 +1,82 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package vulncheck
++
++import (
++ "context"
++ "path"
++ "testing"
++
++ "golang.org/x/tools/go/packages/packagestest"
++ "golang.org/x/vuln/internal/client"
++ "golang.org/x/vuln/internal/govulncheck"
++ "golang.org/x/vuln/internal/osv"
++ "golang.org/x/vuln/internal/test"
++)
++
++// TestTestOnlySymbolTraceControl is a loaded-source positive/negative control,
++// not a manually assembled types or callgraph test. Its OSV is synthetic.
++func TestTestOnlySymbolTraceControl(t *testing.T) {
++ for _,withTests:=range []bool{false,true} {
++  name:="ordinary";if withTests {name="tests"}
++  t.Run(name,func(t *testing.T){
++   e:=packagestest.Export(t,packagestest.Modules,[]packagestest.Module{
++    {Name:"example.org/entry",Files:map[string]interface{}{
++     "p/p.go":"package p\nfunc Ordinary() {}\n",
++     "p/p_test.go":"package p\nimport (\"testing\"; \"example.org/fake/target\")\nfunc TestOnlyTarget(t *testing.T) { wrapper() }\nfunc wrapper() { target.Target() }\n",
++    }},
++    {Name:"example.org/fake@v1.2.3",Files:map[string]interface{}{
++     "target/target.go":"package target\nfunc Target() {}\n",
++    }},
++   })
++   defer e.Cleanup()
++   e.Config.Tests=withTests
++   graph:=NewPackageGraph("go1.26.11")
++   if err:=graph.LoadPackagesAndMods(e.Config,nil,[]string{path.Join(e.Temp(),"entry/p")},true);err!=nil {t.Fatal(err)}
++   c,err:=client.NewInMemoryClient([]*osv.Entry{{
++    ID:"TEST-ONLY-SYNTHETIC",
++    Affected:[]osv.Affected{{
++     Module:osv.Module{Path:"example.org/fake"},
++     Ranges:[]osv.Range{{Type:osv.RangeTypeSemver,Events:[]osv.RangeEvent{{Introduced:"1.0.0"},{Fixed:"2.0.0"}}}},
++     EcosystemSpecific:osv.EcosystemSpecific{Packages:[]osv.Package{{
++      Path:"example.org/fake/target",Symbols:[]string{"Target"},
++     }}},
++    }},
++   }})
++   if err!=nil {t.Fatal(err)}
++   result,err:=source(context.Background(),test.NewMockHandler(),&govulncheck.Config{ScanLevel:"symbol"},c,graph)
++   if err!=nil {t.Fatal(err)}
++   if result==nil {t.Fatal("nil result without error")}
++   want:=[]struct{pkg,name string}{
++    {"example.org/entry/p","TestOnlyTarget"},
++    {"example.org/entry/p","wrapper"},
++    {"example.org/fake/target","Target"},
++   }
++   matched:=false
++   for vuln,stack:=range sourceCallstacks(result) {
++    if vuln.OSV.ID!="TEST-ONLY-SYNTHETIC" || vuln.Symbol!="Target" {continue}
++    if !withTests {t.Fatal("test-only target reported in ordinary build")}
++    if vuln.Package==nil || vuln.Package.Module==nil || vuln.Package.Module.Path!="example.org/fake" || vuln.Package.Module.Version!="v1.2.3" {
++     t.Fatalf("incorrect actual target module: %+v",vuln.Package)
++    }
++    next:=0
++    for _,frame:=range stack {
++     fn:=frame.Function
++     if fn==nil || fn.Package==nil {t.Fatal("missing trace frame ownership")}
++     if next<len(want) && fn.Name==want[next].name && fn.Package.PkgPath==want[next].pkg {
++      if next==2 && (fn.Package.Module==nil || fn.Package.Module.Path!="example.org/fake" || fn.Package.Module.Version!="v1.2.3") {
++       t.Fatal("target trace frame lost actual module/version")
++      }
++      next++
++     }
++    }
++    if next==len(want) {matched=true}
++   }
++   if withTests && !matched {t.Fatal("no ordered TestOnlyTarget -> wrapper -> Target witness")}
++   if !withTests {
++    // Also reject imported/symbol results, not just absent call traces.
++    for _,v:=range result.Vulns {if v.OSV.ID=="TEST-ONLY-SYNTHETIC" {t.Fatal("test-only vulnerability leaked into ordinary control")}}
++   }
++  })
++ }
++}
+--- /dev/null
++++ b/internal/scan/derivative_identity.go
+@@ -0,0 +1,11 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package scan
++
++// setDerivativeScannerIdentity overrides reconstructed upstream build metadata.
++// These labels identify an experimental derivative, not a verified scan or an
++// upstream release. Exact source/patch hashes belong to the bundle manifest.
++func setDerivativeScannerIdentity(cfg *config) {
++ cfg.ScannerName = "bsc-relay-testgraph-experimental"
++ cfg.ScannerVersion = "v0.1.0-testgraph.4+upstream.e672cbe8fbc8"
++}
+--- /dev/null
++++ b/internal/scan/derivative_identity_test.go
+@@ -0,0 +1,41 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package scan
++
++import (
++ "context"
++ "runtime/debug"
++ "testing"
++
++ "golang.org/x/vuln/internal/client"
++)
++
++func assertDerivativeIdentity(t *testing.T, cfg *config) {
++ t.Helper()
++ if cfg.ScannerName!="bsc-relay-testgraph-experimental" {t.Fatalf("misleading scanner name %q",cfg.ScannerName)}
++ if cfg.ScannerVersion!="v0.1.0-testgraph.4+upstream.e672cbe8fbc8" {t.Fatalf("misleading scanner version %q",cfg.ScannerVersion)}
++}
++
++func TestExperimentalScannerIdentity(t *testing.T) {
++ for _,bi:=range []*debug.BuildInfo{
++  nil,
++  {Path:"golang.org/x/vuln/cmd/govulncheck",Main:debug.Module{Version:"v1.9.0"}},
++  {Path:"golang.org/x/vuln/internal/scan.test",Main:debug.Module{Version:"(devel)"}},
++  {Path:"unrelated/name",Main:debug.Module{Version:"v9.9.9"}},
++ } {
++  cfg:=&config{}
++  if bi!=nil { scannerVersion(cfg,bi) }
++  setDerivativeScannerIdentity(cfg)
++  assertDerivativeIdentity(t,cfg)
++ }
++}
++
++func TestExperimentalPreparedScannerIdentity(t *testing.T) {
++ c,err:=client.NewInMemoryClient(nil)
++ if err!=nil {t.Fatal(err)}
++ // Empty ScanMode deliberately avoids the source-mode go-env subprocess.
++ // The in-memory client avoids all real database access.
++ cfg:=&config{}
++ prepareConfig(context.Background(),cfg,c)
++ assertDerivativeIdentity(t,cfg)
++}

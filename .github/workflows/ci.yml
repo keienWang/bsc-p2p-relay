@@ -106,3 +106,34 @@ jobs:
         run: GOBIN="$RUNNER_TEMP/canonical-tools" GOFLAGS=-buildvcs=false go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - name: Scan the exact tagged research test graph
         run: '"$RUNNER_TEMP/canonical-tools/govulncheck" -test -tags=canonicalisolation -show=verbose ./internal/canonicalisolation/...'
+  scanner_synthetic:
+    name: experimental scanner synthetic regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOENV: 'off'
+      GOTELEMETRY: 'off'
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: golang/vuln
+          ref: e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5
+          path: scanner-source
+          persist-credentials: false
+      - name: Check the synthetic harness contract without running Go
+        run: python3 -m unittest discover -s scripts -p 'test_scanner_synthetic_ci.py'
+      - name: Prepare pinned source and ordinary module downloads, without candidate execution
+        timeout-minutes: 5
+        run: python3 scripts/scanner_synthetic_ci.py prepare "$GITHUB_WORKSPACE/scanner-source" "$RUNNER_TEMP/scanner-synthetic"
+      - name: Run only selected synthetic tests with no outbound network
+        timeout-minutes: 7
+        run: python3 scripts/scanner_synthetic_ci.py run "$GITHUB_WORKSPACE/scanner-source" "$RUNNER_TEMP/scanner-synthetic"

@@ -1,0 +1,38 @@
+--- a/internal/vulncheck/source_identity_test.go
++++ b/internal/vulncheck/source_identity_test.go
+@@ -7,6 +7,9 @@
+  "go/token"
+  "go/types"
+  "path"
++ "path/filepath"
++ "os"
++ "strings"
+  "testing"
+ 
+  "golang.org/x/tools/go/callgraph"
+@@ -104,8 +107,25 @@
+   },
+  }})
+  defer e.Cleanup()
++ // Finalize generates go.mod after Files are staged. Set this fixture's
++ // language version only after Export, not through its overwritten Files map.
++ moduleFile:=filepath.Join(e.Temp(),"generic","go.mod")
++ info,err:=os.Lstat(moduleFile)
++ if err!=nil || !info.Mode().IsRegular() {t.Fatalf("fixture go.mod is not a regular file: %v",err)}
++ original,err:=os.ReadFile(moduleFile)
++ if err!=nil {t.Fatal(err)}
++ fields:=strings.Fields(string(original))
++ if len(fields)<2 || fields[0]!="module" || fields[1]!="example.org/generic" {
++  t.Fatal("refusing to rewrite a module other than the generated generic fixture")
++ }
++ if err:=os.WriteFile(moduleFile,[]byte("module example.org/generic\n\ngo 1.18\n"),0600);err!=nil {t.Fatal(err)}
+  g:=NewPackageGraph("go1.26.11")
+  if err:=g.LoadPackagesAndMods(e.Config,nil,[]string{path.Join(e.Temp(),"generic/p")},true);err!=nil {t.Fatal(err)}
++ if len(g.TopPkgs())!=1 {t.Fatal("expected one generic fixture root")}
++ module:=g.TopPkgs()[0].Module
++ if module==nil || module.Path!="example.org/generic" || module.GoVersion!="1.18" || filepath.Clean(module.GoMod)!=filepath.Clean(moduleFile) {
++  t.Fatalf("loaded generic fixture has unexpected module/language identity: %+v",module)
++ }
+  if err:=g.prepareSourceIdentity(true);err!=nil {t.Fatal(err)}
+  prog,_:=buildSSA(g.TopPkgs(),g.TopPkgs()[0].Fset)
+  found:=false

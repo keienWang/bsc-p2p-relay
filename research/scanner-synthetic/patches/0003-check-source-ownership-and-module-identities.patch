@@ -1,0 +1,445 @@
+--- a/internal/vulncheck/packages.go
++++ b/internal/vulncheck/packages.go
+@@ -26,6 +26,7 @@
+ 	modules  map[string]*packages.Module  // all modules (even replacing ones)
+ 	packages map[string]*packages.Package // path lookup for binary-mode compatibility
+ 	instances map[*packages.Package]bool // source graph traversal identity
++	sourceIdentity *sourceIdentity // source-only, validated before emission
+ }
+ 
+ func NewPackageGraph(goVersion string) *PackageGraph {
+--- a/internal/vulncheck/source.go
++++ b/internal/vulncheck/source.go
+@@ -34,6 +34,9 @@
+ //
+ // Assumes that pkgs are non-empty and belong to the same program.
+ func source(ctx context.Context, handler govulncheck.Handler, cfg *govulncheck.Config, client *client.Client, graph *PackageGraph) (*Result, error) {
++	if err := graph.prepareSourceIdentity(cfg.ScanLevel.WantSymbols()); err != nil {
++		return nil, err
++	}
+ 	ctx, cancel := context.WithCancel(ctx)
+ 	defer cancel()
+ 
+@@ -106,7 +109,11 @@
+ 		return nil, buildErr
+ 	}
+ 
+-	entryFuncs, callVulns := calledVulnSymbols(entries, affVulns, cg, graph)
++	if err := graph.indexSourceFunctions(cg, entries); err != nil {
++		return nil, err
++	}
++	entryFuncs, callVulns, err := calledVulnSymbols(entries, affVulns, cg, graph)
++	if err != nil { return nil, err }
+ 	return &Result{EntryFunctions: entryFuncs, Vulns: callVulns}, nil
+ }
+ 
+@@ -125,7 +132,7 @@
+ 		for _, osv := range osvs {
+ 			vuln := &Vuln{
+ 				OSV:     osv,
+-				Package: graph.GetPackage(pkg.PkgPath),
++				Package: pkg,
+ 			}
+ 			vulns = append(vulns, vuln)
+ 		}
+@@ -148,8 +155,9 @@
+ // A slice of call graph is computed related to the reachable vulnerabilities. Each
+ // reachable Vuln has attached FuncNode that can be upward traversed to the entry points.
+ // Entry points that reach the vulnerable symbols are also returned.
+-func calledVulnSymbols(sources []*ssa.Function, affVulns affectingVulns, cg *callgraph.Graph, graph *PackageGraph) ([]*FuncNode, []*Vuln) {
+-	sinksWithVulns := vulnFuncs(cg, affVulns, graph)
++func calledVulnSymbols(sources []*ssa.Function, affVulns affectingVulns, cg *callgraph.Graph, graph *PackageGraph) ([]*FuncNode, []*Vuln, error) {
++	sinksWithVulns, err := vulnFuncs(cg, affVulns, graph)
++	if err != nil { return nil, nil, err }
+ 
+ 	// Compute call graph backwards reachable
+ 	// from vulnerable functions and methods.
+@@ -222,20 +230,22 @@
+ }
+ 
+ // vulnCallGraph creates vulnerability call graph in terms of sources and sinks.
+-func vulnCallGraph(sources []*callgraph.Node, sinks map[*callgraph.Node][]*osv.Entry, graph *PackageGraph) ([]*FuncNode, []*Vuln) {
++func vulnCallGraph(sources []*callgraph.Node, sinks map[*callgraph.Node][]*osv.Entry, graph *PackageGraph) ([]*FuncNode, []*Vuln, error) {
+ 	var entries []*FuncNode
+ 	var vulns []*Vuln
+ 	nodes := make(map[*ssa.Function]*FuncNode)
+ 
+ 	// First create entries and sinks and store relevant information.
+ 	for _, s := range sources {
+-		fn := createNode(nodes, s.Func, graph)
++		fn, err := createNode(nodes, s.Func, graph)
++		if err != nil { return nil, nil, err }
+ 		entries = append(entries, fn)
+ 	}
+ 
+ 	for s, osvs := range sinks {
+ 		f := s.Func
+-		funNode := createNode(nodes, s.Func, graph)
++		funNode, err := createNode(nodes, s.Func, graph)
++		if err != nil { return nil, nil, err }
+ 
+ 		// Populate CallSink field for each detected vuln symbol.
+ 		for _, osv := range osvs {
+@@ -244,16 +254,18 @@
+ 	}
+ 
+ 	visited := make(map[*callgraph.Node]bool)
+-	var visit func(*callgraph.Node)
+-	visit = func(n *callgraph.Node) {
++	var visit func(*callgraph.Node) error
++	visit = func(n *callgraph.Node) error {
+ 		if visited[n] {
+-			return
++			return nil
+ 		}
+ 		visited[n] = true
+ 
+ 		for _, edge := range n.In {
+-			nCallee := createNode(nodes, edge.Callee.Func, graph)
+-			nCaller := createNode(nodes, edge.Caller.Func, graph)
++			nCallee, err := createNode(nodes, edge.Callee.Func, graph)
++			if err != nil { return err }
++			nCaller, err := createNode(nodes, edge.Caller.Func, graph)
++			if err != nil { return err }
+ 
+ 			call := edge.Site
+ 			cs := &CallSite{
+@@ -265,41 +277,45 @@
+ 			}
+ 			nCallee.CallSites = append(nCallee.CallSites, cs)
+ 
+-			visit(edge.Caller)
+-		}
++			if err := visit(edge.Caller); err != nil { return err }
++		}
++		return nil
+ 	}
+ 
+ 	for s := range sinks {
+-		visit(s)
+-	}
+-	return entries, vulns
++		if err := visit(s); err != nil { return nil, nil, err }
++	}
++	return entries, vulns, nil
+ }
+ 
+ // vulnFuncs returns vulnerability information for vulnerable functions in cg.
+-func vulnFuncs(cg *callgraph.Graph, affVulns affectingVulns, graph *PackageGraph) map[*callgraph.Node][]*osv.Entry {
++func vulnFuncs(cg *callgraph.Graph, affVulns affectingVulns, graph *PackageGraph) (map[*callgraph.Node][]*osv.Entry, error) {
+ 	m := make(map[*callgraph.Node][]*osv.Entry)
+ 	for f, n := range cg.Nodes {
+-		p := pkgPath(f)
+-		vulns := affVulns.ForSymbol(pkgModPath(graph.GetPackage(p)), p, dbFuncName(f))
++		owner, err := graph.sourceFunctionOwner(f)
++		if err != nil { return nil, err }
++		vulns := affVulns.ForSymbol(pkgModPath(owner), owner.PkgPath, dbFuncName(f))
+ 		if len(vulns) > 0 {
+ 			m[n] = vulns
+ 		}
+ 	}
+-	return m
+-}
+-
+-func createNode(nodes map[*ssa.Function]*FuncNode, f *ssa.Function, graph *PackageGraph) *FuncNode {
++	return m, nil
++}
++
++func createNode(nodes map[*ssa.Function]*FuncNode, f *ssa.Function, graph *PackageGraph) (*FuncNode, error) {
+ 	if fn, ok := nodes[f]; ok {
+-		return fn
+-	}
++		return fn, nil
++	}
++	owner, err := graph.sourceFunctionOwner(f)
++	if err != nil { return nil, err }
+ 	fn := &FuncNode{
+ 		Name:     f.Name(),
+-		Package:  graph.GetPackage(pkgPath(f)),
++		Package:  owner,
+ 		RecvType: funcRecvType(f),
+ 		Pos:      funcPosition(f),
+ 	}
+ 	nodes[f] = fn
+-	return fn
++	return fn, nil
+ }
+ 
+ func calledVuln(call *FuncNode, osv *osv.Entry, symbol string, pkg *packages.Package) *Vuln {
+--- /dev/null
++++ b/internal/vulncheck/source_identity.go
+@@ -0,0 +1,143 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package vulncheck
++
++import (
++ "fmt"
++ "go/types"
++
++ "golang.org/x/tools/go/callgraph"
++ "golang.org/x/tools/go/packages"
++ "golang.org/x/tools/go/ssa"
++ "golang.org/x/vuln/internal"
++)
++
++// Source-only identity checks. Binary callers keep their existing path API.
++// Never infer a source owner from a same-path representative.
++type sourceIdentity struct {
++ byTypes map[*types.Package]*packages.Package
++ unknown *packages.Package
++}
++
++type sourceModuleKey struct { path, version, dir string }
++type sourceModuleIdentity struct {
++ original sourceModuleKey
++ replacement sourceModuleKey
++ replaced bool
++}
++
++func sourceModuleID(m *packages.Module) (sourceModuleIdentity, error) {
++ if m == nil || m.Path == "" { return sourceModuleIdentity{}, fmt.Errorf("source package has no module identity") }
++ id := sourceModuleIdentity{original: sourceModuleKey{m.Path, m.Version, m.Dir}}
++ if m.Replace != nil {
++  if m.Replace.Path == "" || m.Replace.Replace != nil {
++   return sourceModuleIdentity{}, fmt.Errorf("unsupported replacement identity for %q", m.Path)
++  }
++  id.replaced = true
++  id.replacement = sourceModuleKey{m.Replace.Path, m.Replace.Version, m.Replace.Dir}
++ }
++ return id, nil
++}
++
++// prepareSourceIdentity rejects conflicting original OR effective identities
++// before emitting an SBOM or findings. Replacement roles use separate maps:
++// a legitimate same-path version replacement is not itself a conflict.
++func (g *PackageGraph) prepareSourceIdentity(symbols bool) error {
++ g.sourceIdentity = nil
++ index := &sourceIdentity{
++  byTypes: make(map[*types.Package]*packages.Package),
++  unknown: &packages.Package{PkgPath: internal.UnknownPackagePath,
++   Module: &packages.Module{Path: internal.UnknownModulePath}},
++ }
++ originals := make(map[string]sourceModuleIdentity)
++ effective := make(map[string]sourceModuleKey)
++ visited := make(map[*packages.Package]bool)
++ var visit func(*packages.Package) error
++ visit = func(p *packages.Package) error {
++  if p == nil { return fmt.Errorf("nil source package in loaded graph") }
++  if visited[p] { return nil }
++  visited[p] = true
++  id, err := sourceModuleID(p.Module)
++  if err != nil { return fmt.Errorf("package %q: %w", p.ID, err) }
++  if prior, ok := originals[id.original.path]; ok && prior != id {
++   return fmt.Errorf("conflicting source module identity for %q", id.original.path)
++  }
++  originals[id.original.path] = id
++  eff := id.original
++  if id.replaced { eff = id.replacement }
++  if prior, ok := effective[eff.path]; ok && prior != eff {
++   return fmt.Errorf("conflicting effective module identity for %q", eff.path)
++  }
++  effective[eff.path] = eff
++  // AddModules keeps the first representative. Ensure it agrees with the
++  // package's original identity, not merely that its path was registered.
++  registered, ok := g.modules[id.original.path]
++  if !ok { return fmt.Errorf("unregistered source module %q", id.original.path) }
++  registeredID, err := sourceModuleID(registered)
++  if err != nil || registeredID != id {
++   return fmt.Errorf("source module registry disagrees for %q", id.original.path)
++  }
++  if symbols && p.Types == nil { return fmt.Errorf("package %q has no types identity", p.ID) }
++  if p.Types != nil {
++   if p.Types.Path() != p.PkgPath { return fmt.Errorf("types path mismatch for %q", p.ID) }
++   if old, ok := index.byTypes[p.Types]; ok && old != p {
++    return fmt.Errorf("types identity shared by distinct source packages %q and %q", old.ID, p.ID)
++   }
++   index.byTypes[p.Types] = p
++  }
++  for _, child := range p.Imports { if err := visit(child); err != nil { return err } }
++  return nil
++ }
++ if len(g.topPkgs) == 0 { return fmt.Errorf("empty source roots") }
++ for _, p := range g.topPkgs { if err := visit(p); err != nil { return err } }
++ g.sourceIdentity = index
++ return nil
++}
++
++func (g *PackageGraph) sourceFunctionOwner(f *ssa.Function) (*packages.Package, error) {
++ if g.sourceIdentity == nil { return nil, fmt.Errorf("source identity has not been validated") }
++ if f == nil { return nil, fmt.Errorf("nil SSA function has no source owner") }
++ owner := f
++ if origin := f.Origin(); origin != nil { owner = origin }
++ var typ *types.Package
++ if sp := owner.Package(); sp != nil { typ = sp.Pkg }
++ if typ == nil && owner.Object() != nil { typ = owner.Object().Pkg() }
++ if typ != nil {
++  p, ok := g.sourceIdentity.byTypes[typ]
++  if !ok { return nil, fmt.Errorf("unregistered SSA types identity for %q", typ.Path()) }
++  return p, nil
++ }
++ if parent := owner.Parent(); parent != nil { return g.sourceFunctionOwner(parent) }
++ // Only explicitly synthetic functions with no package, object owner, or
++ // lexical parent may be unknown. No path-string fallback is allowed.
++ if owner.Synthetic != "" { return g.sourceIdentity.unknown, nil }
++ return nil, fmt.Errorf("non-synthetic SSA function %q has no package identity", owner.Name())
++}
++
++// Validate every callgraph node and edge plus all entry functions before any
++// symbol finding is built. Emission helpers also check ownership directly.
++func (g *PackageGraph) indexSourceFunctions(cg *callgraph.Graph, entries []*ssa.Function) error {
++ if cg == nil { return fmt.Errorf("nil source callgraph") }
++ if g.sourceIdentity == nil { return fmt.Errorf("source identity has not been validated") }
++ owners := make(map[*ssa.Function]*packages.Package)
++ add := func(f *ssa.Function) error {
++  if _, ok := owners[f]; ok { return nil }
++  p, err := g.sourceFunctionOwner(f)
++  if err != nil { return err }
++  owners[f] = p
++  return nil
++ }
++ for f, n := range cg.Nodes {
++  if n == nil || n.Func != f { return fmt.Errorf("inconsistent source callgraph node") }
++  if err := add(f); err != nil { return err }
++  for _, edges := range [][]*callgraph.Edge{n.In, n.Out} {
++   for _, e := range edges {
++    if e == nil || e.Caller == nil || e.Callee == nil { return fmt.Errorf("invalid source callgraph edge") }
++    if err := add(e.Caller.Func); err != nil { return err }
++    if err := add(e.Callee.Func); err != nil { return err }
++   }
++  }
++ }
++ for _, f := range entries { if err := add(f); err != nil { return err } }
++ return nil
++}
+--- /dev/null
++++ b/internal/vulncheck/source_identity_test.go
+@@ -0,0 +1,128 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package vulncheck
++
++import (
++ "context"
++ "go/token"
++ "go/types"
++ "path"
++ "testing"
++
++ "golang.org/x/tools/go/callgraph"
++ "golang.org/x/tools/go/packages"
++ "golang.org/x/tools/go/packages/packagestest"
++ "golang.org/x/tools/go/ssa"
++ "golang.org/x/tools/go/ssa/ssautil"
++ "golang.org/x/vuln/internal"
++ "golang.org/x/vuln/internal/osv"
++ "golang.org/x/vuln/internal/govulncheck"
++ "golang.org/x/vuln/internal/test"
++)
++
++func identityFixture() (*PackageGraph, *packages.Package, *packages.Package) {
++ m := &packages.Module{Path: "example.org/m", Version: "v1.0.0"}
++ a := &packages.Package{ID:"example.org/m/p", PkgPath:"example.org/m/p", Module:m, Types:types.NewPackage("example.org/m/p","p")}
++ b := &packages.Package{ID:"example.org/m/p [example.org/m/p.test]", PkgPath:a.PkgPath, Module:m, Types:types.NewPackage(a.PkgPath,"p")}
++ g := &PackageGraph{packages:map[string]*packages.Package{}, modules:map[string]*packages.Module{}, topPkgs:[]*packages.Package{a,b}}
++ g.AddPackages(a,b)
++ return g,a,b
++}
++
++func TestSourceTypesAndImportedFindingsKeepVariant(t *testing.T) {
++ g,a,b := identityFixture()
++ if err:=g.prepareSourceIdentity(true); err!=nil {t.Fatal(err)}
++ if g.sourceIdentity.byTypes[a.Types]!=a || g.sourceIdentity.byTypes[b.Types]!=b {t.Fatal("types identity collapsed")}
++ osvEntry := &osv.Entry{ID:"TEST-VARIANTS",Affected:[]osv.Affected{{
++  Module:osv.Module{Path:a.Module.Path},
++  EcosystemSpecific:osv.EcosystemSpecific{Packages:[]osv.Package{{Path:a.PkgPath,Symbols:[]string{"F"}}}},
++ }}}
++ aff := affectingVulns{&ModVulns{Module:a.Module,Vulns:[]*osv.Entry{osvEntry}}}
++ findings := importedVulnPackages(aff,g)
++ seen:=map[*packages.Package]bool{}
++ for _,v:=range findings {seen[v.Package]=true}
++ if len(findings)!=2 || !seen[a] || !seen[b] {t.Fatal("import findings lost actual source package")}
++ prog:=ssa.NewProgram(token.NewFileSet(),ssa.InstantiateGenerics)
++ sp:=prog.CreatePackage(b.Types,nil,nil,true)
++ f:=prog.NewFunction("F",types.NewSignatureType(nil,nil,nil,nil,nil,false),"test function")
++ f.Pkg=sp
++ owner,err:=g.sourceFunctionOwner(f)
++ if err!=nil || owner!=b {t.Fatalf("owner=%p error=%v, want variant",owner,err)}
++ cg:=callgraph.New(f)
++ if err:=g.indexSourceFunctions(cg,[]*ssa.Function{f});err!=nil {t.Fatal(err)}
++ sinks,err:=vulnFuncs(cg,aff,g)
++ if err!=nil || len(sinks)!=1 {t.Fatalf("symbol lookup sinks=%d err=%v",len(sinks),err)}
++ frame,err:=createNode(map[*ssa.Function]*FuncNode{},f,g)
++ if err!=nil || frame.Package!=b {t.Fatalf("frame owner lost variant: %v",err)}
++ // Same path, different unregistered types object must NOT fall back to a.
++ outsider:=prog.CreatePackage(types.NewPackage(a.PkgPath,"p"),nil,nil,true)
++ f.Pkg=outsider
++ if _,err:=g.sourceFunctionOwner(f);err==nil {t.Fatal("same-path fallback accepted")}
++ if _,err:=vulnFuncs(cg,aff,g);err==nil {t.Fatal("symbol lookup accepted missing identity")}
++ if _,err:=createNode(map[*ssa.Function]*FuncNode{},f,g);err==nil {t.Fatal("frame creation accepted missing identity")}
++ if err:=g.indexSourceFunctions(cg,[]*ssa.Function{f});err==nil {t.Fatal("callgraph validation accepted missing identity")}
++ f.Pkg=nil
++ owner,err=g.sourceFunctionOwner(f)
++ if err!=nil || owner.PkgPath!=internal.UnknownPackagePath {t.Fatal("explicit synthetic unknown rejected")}
++ f.Synthetic=""
++ if _,err:=g.sourceFunctionOwner(f);err==nil {t.Fatal("non-synthetic missing owner accepted")}
++}
++
++func TestSourceIdentityConflictsFailClosed(t *testing.T) {
++ cases:=[]struct{name string; mutate func(*packages.Package,*packages.Package)}{
++  {"version",func(a,b *packages.Package){b.Module=&packages.Module{Path:a.Module.Path,Version:"v2.0.0"}}},
++  {"directory",func(a,b *packages.Package){b.Module=&packages.Module{Path:a.Module.Path,Version:a.Module.Version,Dir:"different"}}},
++  {"replacement",func(a,b *packages.Package){b.Module=&packages.Module{Path:a.Module.Path,Version:a.Module.Version,Replace:&packages.Module{Path:"example.org/fork",Version:"v1.0.0"}}}},
++  {"shared types",func(a,b *packages.Package){b.Types=a.Types}},
++  {"missing types",func(a,b *packages.Package){b.Types=nil}},
++ }
++ for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
++  g,a,b:=identityFixture();tc.mutate(a,b)
++  if err:=g.prepareSourceIdentity(true);err==nil {t.Fatal("conflict accepted")}
++  if g.sourceIdentity!=nil {t.Fatal("partial index published after error")}
++  // A nil client is deliberate: validation must fail before any fetch.
++  result,err:=source(context.Background(),test.NewMockHandler(),&govulncheck.Config{ScanLevel:"symbol"},nil,g)
++  if result!=nil || err==nil {t.Fatal("source did not reject conflict before scan")}
++ })}
++}
++
++func TestSourceSamePathReplacementAndEffectiveConflict(t *testing.T) {
++ g,a,b:=identityFixture()
++ m:=&packages.Module{Path:a.Module.Path,Version:"v1.0.0",Replace:&packages.Module{Path:a.Module.Path,Version:"v1.1.0"}}
++ a.Module=m;b.Module=m;g.modules[m.Path]=m
++ if err:=g.prepareSourceIdentity(true);err!=nil {t.Fatalf("valid same-path replacement: %v",err)}
++ c:=&packages.Package{ID:"example.org/alias/q",PkgPath:"example.org/alias/q",Types:types.NewPackage("example.org/alias/q","q"),
++  Module:&packages.Module{Path:"example.org/alias",Version:"v1.0.0",Replace:&packages.Module{Path:m.Path,Version:"v9.0.0"}}}
++ g.topPkgs=append(g.topPkgs,c);g.AddPackages(c)
++ if err:=g.prepareSourceIdentity(true);err==nil {t.Fatal("conflicting effective version accepted")}
++}
++
++func TestSourceGenericOriginIdentity(t *testing.T) {
++ e:=packagestest.Export(t,packagestest.Modules,[]packagestest.Module{{
++  Name:"example.org/generic",Files:map[string]interface{}{
++   "p/p.go":"package p\nfunc Generic[T any](v T) T { return v }\nfunc Entry() { _ = Generic(1) }\n",
++  },
++ }})
++ defer e.Cleanup()
++ g:=NewPackageGraph("go1.26.11")
++ if err:=g.LoadPackagesAndMods(e.Config,nil,[]string{path.Join(e.Temp(),"generic/p")},true);err!=nil {t.Fatal(err)}
++ if err:=g.prepareSourceIdentity(true);err!=nil {t.Fatal(err)}
++ prog,_:=buildSSA(g.TopPkgs(),g.TopPkgs()[0].Fset)
++ found:=false
++ for f:=range ssautil.AllFunctions(prog) {
++  if f.Origin()==nil {continue}
++  found=true
++  p,err:=g.sourceFunctionOwner(f)
++  if err!=nil || p!=g.TopPkgs()[0] {t.Fatalf("generic owner=%p err=%v",p,err)}
++  delete(g.sourceIdentity.byTypes,f.Origin().Package().Pkg)
++  if _,err:=g.sourceFunctionOwner(f);err==nil {t.Fatal("unregistered generic origin accepted")}
++  break
++ }
++ if !found {t.Fatal("fixture did not create a generic instance")}
++}
++
++func TestBinaryPathContractWithoutSourceIndex(t *testing.T) {
++ g:=&PackageGraph{packages:map[string]*packages.Package{},modules:map[string]*packages.Module{}}
++ p:=g.GetPackage("example.org/binary/p")
++ if p==nil || g.GetPackage(p.PkgPath)!=p || g.sourceIdentity!=nil {t.Fatal("binary path lookup changed")}
++}

@@ -1,0 +1,55 @@
+{
+  "upstream_commit": "e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 1453,
+      "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "path": "LICENSE.CONTRIBUTIONS",
+      "bytes": 1484,
+      "sha256": "ca505842138e59bcd3a935915be65ee7f60596727bb1a8742ce96544f8c0470f"
+    },
+    {
+      "path": "PATENTS",
+      "bytes": 1303,
+      "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7416,
+      "sha256": "cd4c7df08bc30391d565a3c3d093cf47046148affc5e210c2394f52fa7246c34"
+    },
+    {
+      "path": "UPSTREAM.json",
+      "bytes": 3582,
+      "sha256": "36e15de98692c69ca3a56e17e64d8d8480bd918d6084a30edd2f1e9c7c846647"
+    },
+    {
+      "path": "patches/0001-propagate-callgraph-error.patch",
+      "bytes": 2910,
+      "sha256": "124cc626d912934be451792b9b3efdd141094a78310fe06ee3c239e1d624abba"
+    },
+    {
+      "path": "patches/0002-preserve-package-instances-and-roots.patch",
+      "bytes": 6727,
+      "sha256": "2240a1ce3a8cb637149a1fe5f6a8b2a065e605b4e326d6d1ac31ab83bbd1fea7"
+    },
+    {
+      "path": "patches/0003-check-source-ownership-and-module-identities.patch",
+      "bytes": 19112,
+      "sha256": "3e6929bda655c62fb1aa46c3e4fb18e2ccd6a1054f117b5e370f4926c671f251"
+    },
+    {
+      "path": "patches/0004-test-only-symbol-control-and-derivative-identity.patch",
+      "bytes": 6001,
+      "sha256": "ab8c366e6b3a0a0ef83ee1c3c3c89eed241df27700b2786f82eeca4567619e45"
+    },
+    {
+      "path": "patches/0005-pin-generic-fixture-language.patch",
+      "bytes": 1653,
+      "sha256": "18c395c59d0550602a6d43a120d84d33f6dc1938a3fc239bf3bb483233bd3d13"
+    }
+  ]
+}

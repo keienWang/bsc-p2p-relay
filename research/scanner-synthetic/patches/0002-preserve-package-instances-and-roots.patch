@@ -1,0 +1,196 @@
+--- a/internal/vulncheck/packages.go
++++ b/internal/vulncheck/packages.go
+@@ -24,7 +24,8 @@
+ 	// Empty in binary mode.
+ 	topPkgs  []*packages.Package
+ 	modules  map[string]*packages.Module  // all modules (even replacing ones)
+-	packages map[string]*packages.Package // all packages (even dependencies)
++	packages map[string]*packages.Package // path lookup for binary-mode compatibility
++	instances map[*packages.Package]bool // source graph traversal identity
+ }
+ 
+ func NewPackageGraph(goVersion string) *PackageGraph {
+@@ -54,46 +55,27 @@
+ // strictly depend on. This does not include topPkgs even if
+ // they are dependency of each other.
+ func (g *PackageGraph) DepPkgs() []*packages.Package {
+-	topPkgs := g.TopPkgs()
+-	tops := make(map[string]bool)
+-	depPkgs := make(map[string]*packages.Package)
+-
+-	for _, t := range topPkgs {
+-		tops[t.PkgPath] = true
+-	}
+-
+-	var visit func(*packages.Package, bool)
+-	visit = func(p *packages.Package, top bool) {
+-		path := p.PkgPath
+-		if _, ok := depPkgs[path]; ok {
++	tops := make(map[*packages.Package]bool)
++	for _, p := range g.TopPkgs() {
++		tops[p] = true
++	}
++	visited := make(map[*packages.Package]bool)
++	var deps []*packages.Package
++	var visit func(*packages.Package)
++	visit = func(p *packages.Package) {
++		if visited[p] {
+ 			return
+ 		}
+-		if tops[path] && !top {
+-			// A top package that is a dependency
+-			// will not be in depPkgs, so we skip
+-			// reiterating on it here.
+-			return
+-		}
+-
+-		// We don't count a top-level package as
+-		// a dependency even when they are used
+-		// as a dependent package.
+-		if !tops[path] {
+-			depPkgs[path] = p
+-		}
+-
+-		for _, d := range p.Imports {
+-			visit(d, false)
+-		}
+-	}
+-
+-	for _, t := range topPkgs {
+-		visit(t, true)
+-	}
+-
+-	var deps []*packages.Package
+-	for _, d := range depPkgs {
+-		deps = append(deps, g.GetPackage(d.PkgPath))
++		visited[p] = true
++		if !tops[p] {
++			deps = append(deps, p)
++		}
++		for _, child := range p.Imports {
++			visit(child)
++		}
++	}
++	for _, p := range g.TopPkgs() {
++		visit(p)
+ 	}
+ 	return deps
+ }
+@@ -136,16 +118,21 @@
+ 	return mod
+ }
+ 
+-// AddPackages adds the packages and their full graph of imported packages.
+-// It also adds the modules of the added packages. It will ignore packages
+-// that have duplicate paths to ones the graph already holds.
++// AddPackages traverses every loaded package instance, including test variants
++// sharing a PkgPath. The path lookup is retained for binary-mode compatibility;
++// it must not determine traversal or replace original source roots.
+ func (g *PackageGraph) AddPackages(pkgs ...*packages.Package) {
++	if g.instances == nil {
++		g.instances = make(map[*packages.Package]bool)
++	}
+ 	for _, pkg := range pkgs {
+-		if _, found := g.packages[pkg.PkgPath]; found {
+-			//TODO: check duplicates are okay?
++		if g.instances[pkg] {
+ 			continue
+ 		}
+-		g.packages[pkg.PkgPath] = pkg
++		g.instances[pkg] = true
++		if _, found := g.packages[pkg.PkgPath]; !found {
++			g.packages[pkg.PkgPath] = pkg
++		}
+ 		g.fixupPackage(pkg)
+ 		for _, child := range pkg.Imports {
+ 			g.AddPackages(child)
+@@ -221,7 +208,7 @@
+ 
+ 	// save top-level packages
+ 	for _, p := range pkgs {
+-		g.topPkgs = append(g.topPkgs, g.GetPackage(p.PkgPath))
++		g.topPkgs = append(g.topPkgs, p)
+ 	}
+ 	return err
+ }
+--- /dev/null
++++ b/internal/vulncheck/package_instances_test.go
+@@ -0,0 +1,78 @@
++// Copyright 2026 The bsc-p2p-relay contributors.
++// SPDX-License-Identifier: BSD-3-Clause
++package vulncheck
++
++import (
++	"testing"
++	"path"
++	"golang.org/x/tools/go/packages/packagestest"
++
++	"golang.org/x/tools/go/packages"
++)
++
++func TestPackageInstancesRetainTestOnlyImports(t *testing.T) {
++	main := &packages.Module{Path: "example.org/main", Version: "v1.0.0"}
++	extra := &packages.Module{Path: "example.org/extra", Version: "v1.2.0"}
++	normal := &packages.Package{ID: "example.org/main/p", PkgPath: "example.org/main/p", Module: main}
++	dependency := &packages.Package{ID: "example.org/extra/x", PkgPath: "example.org/extra/x", Module: extra}
++	variant := &packages.Package{
++		ID: "example.org/main/p [example.org/main/p.test]", PkgPath: normal.PkgPath,
++		Module: main, Imports: map[string]*packages.Package{dependency.PkgPath: dependency},
++	}
++	g := &PackageGraph{packages: map[string]*packages.Package{}, modules: map[string]*packages.Module{}}
++	g.AddPackages(normal, variant, variant)
++	if len(g.instances) != 3 || g.instances[dependency] == false {
++		t.Fatalf("instance closure = %d, want ordinary, test variant, test-only import", len(g.instances))
++	}
++	if g.modules[extra.Path] != extra {
++		t.Fatal("test-only dependency module missing")
++	}
++	if g.packages[normal.PkgPath] != normal {
++		t.Fatal("path compatibility lookup unexpectedly replaced")
++	}
++	// Deliberately make only the ordinary package a root. The same-path test
++	// variant reached through a separate root must still count as a dependency.
++	wrapper := &packages.Package{ID: "example.org/main/w", PkgPath: "example.org/main/w",
++		Module: main, Imports: map[string]*packages.Package{"p": variant}}
++	g.topPkgs = []*packages.Package{normal, wrapper}
++	g.AddPackages(wrapper)
++	seen := map[*packages.Package]bool{}
++	for _, p := range g.DepPkgs() { seen[p] = true }
++	if len(seen) != 2 || !seen[variant] || !seen[dependency] {
++		t.Fatalf("dependencies lost exact package identity: %v", seen)
++	}
++}
++
++func TestLoadedTestRootsKeepIdentity(t *testing.T) {
++	// The load-level fixture is intentionally separate from pointer-only tests:
++	// a graph built by hand cannot prove LoadPackagesAndMods keeps its roots.
++	e := testRootExport(t)
++	defer e.Cleanup()
++	e.Config.Tests = true
++	g := NewPackageGraph("go1.26.11")
++	if err := g.LoadPackagesAndMods(e.Config, nil, []string{path.Join(e.Temp(), "root/p")}, true); err != nil {
++		t.Fatal(err)
++	}
++	var ordinary, variant *packages.Package
++	for _, p := range g.TopPkgs() {
++		if p.PkgPath != "example.org/root/p" { continue }
++		if p.ID == p.PkgPath { ordinary = p } else { variant = p }
++	}
++	if ordinary == nil || variant == nil || ordinary == variant {
++		t.Fatalf("distinct ordinary/test roots missing: ordinary=%p variant=%p", ordinary, variant)
++	}
++	if variant.Imports["example.org/root/onlytest"] == nil {
++		t.Fatal("test root lost its test-only import")
++	}
++}
++
++func testRootExport(t *testing.T) *packagestest.Exported {
++	return packagestest.Export(t, packagestest.Modules, []packagestest.Module{{
++		Name: "example.org/root",
++		Files: map[string]interface{}{
++			"p/p.go": "package p\nfunc P() {}\n",
++			"p/p_test.go": "package p\nimport (\"testing\"; \"example.org/root/onlytest\")\nfunc TestP(t *testing.T) { onlytest.Target() }\n",
++			"onlytest/t.go": "package onlytest\nfunc Target() {}\n",
++		},
++	}})
++}

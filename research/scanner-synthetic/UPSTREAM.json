@@ -1,0 +1,76 @@
+{
+  "upstream_commit": "e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5",
+  "complete_checkout": false,
+  "references": [
+    {
+      "path": "internal/vulncheck/source.go",
+      "bytes": 8753,
+      "sha256": "418eed2f4fd0b19d2b41aa62b8558d70730dc52cc2715b7d724c09693f9d228d",
+      "git_blob_sha1": "348c3b96ad7e22b6f0667ee61fcd45b41ad7066f",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/vulncheck/source.go"
+    },
+    {
+      "path": "internal/vulncheck/packages.go",
+      "bytes": 8443,
+      "sha256": "e2f0e8abca3cd9166060af82118040c1870c1b4c530a8b2606cf6ad7ef38f33a",
+      "git_blob_sha1": "484e549443cf9842cf8a699024827a987ca14045",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/vulncheck/packages.go"
+    },
+    {
+      "path": "internal/vulncheck/utils.go",
+      "bytes": 10010,
+      "sha256": "c5cc8b694e148bdbfa1ab6320e52ed370194de52707700aa4cec4316f3dd51f0",
+      "git_blob_sha1": "fb32a2c3831e44726684233798a17fcb87735836",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/vulncheck/utils.go"
+    },
+    {
+      "path": "internal/vulncheck/source_test.go",
+      "bytes": 11372,
+      "sha256": "43d6f4a80e9211d57570292b48ddae4d9cc46d17525fcdf01b6100f95d8da0eb",
+      "git_blob_sha1": "2d94cee1fea038cbabf64b0ea3f7fef3144f4f8f",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/vulncheck/source_test.go"
+    },
+    {
+      "path": "internal/vulncheck/vulncheck_test.go",
+      "bytes": 12612,
+      "sha256": "f6b13a2c46e8838519b625f8ea5b236e7c94da1a52dd525f8b29cd8794ef76da",
+      "git_blob_sha1": "84bff290fe1814f15b5136687e4196433db1e608",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/vulncheck/vulncheck_test.go"
+    },
+    {
+      "path": "internal/scan/run.go",
+      "bytes": 4353,
+      "sha256": "261ae4139fbe9c59021f5e0fc430ed8419e1eff81192e15db1fe1abf0dbc5a7f",
+      "git_blob_sha1": "560a3ad8ff1ce5915621d510f2871b315b475c10",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/internal/scan/run.go"
+    },
+    {
+      "path": "go.mod",
+      "bytes": 510,
+      "sha256": "9495a2000c06e8cf6770a80e715276a95008f41730bad3a08ed55f7fdd10a56b",
+      "git_blob_sha1": "c56f95597581f6e726e2f79db209bc48afbda438",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/go.mod"
+    },
+    {
+      "path": "go.sum",
+      "bytes": 1921,
+      "sha256": "43d8c4a3ce15d45c3d94763a7e2e46a72ae7b5ef5728289c154217bca8380285",
+      "git_blob_sha1": "749c4f6d8ace9933c324f3f998c50f292a523682",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/go.sum"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1453,
+      "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "git_blob_sha1": "2a7cf70da6e498df9c11ab6a5eaa2ddd7af34da4",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/LICENSE"
+    },
+    {
+      "path": "PATENTS",
+      "bytes": 1303,
+      "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc",
+      "git_blob_sha1": "733099041f84fa1e58611ab2e11af51c1f26d1d2",
+      "url": "https://raw.githubusercontent.com/golang/vuln/e672cbe8fbc8c76e28fcb6db0efd9ce354e0dac5/PATENTS"
+    }
+  ]
+}
