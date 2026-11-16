@@ -33,6 +33,12 @@ jobs:
       - run: python3 scripts/smoke.py ./bsc-relay
       - run: python3 scripts/check_runtime_dependencies.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Scan the default test graph
+        timeout-minutes: 5
+        env:
+          GOFLAGS: -mod=readonly
+          GOWORK: 'off'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -db https://vuln.go.dev -test -show=verbose ./...
   official_txpool:
     name: isolated official BSC txpool
     runs-on: ubuntu-latest
