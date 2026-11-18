@@ -4,9 +4,12 @@
 package relay
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -99,7 +102,36 @@ func TestStaticPeerLoopbackRecovery(t *testing.T) {
 		h := n.Health()
 		return h.ConnectedPeers == 1 && h.ReadyPeers == 1 && remote.PeerCount() == 1 && session() != nil
 	}
+	api := httptest.NewServer(n.ObservationHandler())
+	t.Cleanup(api.Close)
+	client := api.Client()
+	client.Timeout = 2 * time.Second
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	observe := func(label string, wantHTTPStatus, wantPeers int) Stats {
+		t.Helper()
+		var ready Health
+		recoveryObservationGET(t, client, api.URL+"/readyz", wantHTTPStatus, &ready)
+		if ready.ChainID != chainCfg.ChainID.String() || ready.ReadyPeers != wantPeers || ready.ConnectedPeers != wantPeers {
+			t.Fatalf("%s: unexpected /readyz observation: %+v", label, ready)
+		}
+		var stats Stats
+		recoveryObservationGET(t, client, api.URL+"/v1/stats", http.StatusOK, &stats)
+		if stats.SchemaVersion != 1 || stats.InstanceID == "" || stats.CreatedAt.IsZero() || stats.ObservedAt.IsZero() {
+			t.Fatalf("%s: missing /v1/stats metadata: %+v", label, stats)
+		}
+		if stats.Submit != (SubmitStats{}) || stats.HTTP != (HTTPStats{}) {
+			t.Fatalf("%s: unexpected activity in observation-only stats: %+v", label, stats)
+		}
+		return stats
+	}
 	awaitRecoveryState(t, "initial static handshake", 10*time.Second, isReady)
+	initialStats := observe("initial handshake", http.StatusOK, 1)
+	sameInstance := func(label string, stats Stats) {
+		t.Helper()
+		if stats.InstanceID != initialStats.InstanceID || !stats.CreatedAt.Equal(initialStats.CreatedAt) {
+			t.Fatalf("%s: stats node identity or creation time changed", label)
+		}
+	}
 	for cycle := 1; cycle <= 2; cycle++ {
 		previous := session()
 		if previous == nil {
@@ -111,14 +143,31 @@ func TestStaticPeerLoopbackRecovery(t *testing.T) {
 			h := n.Health()
 			return h.ConnectedPeers == 0 && h.ReadyPeers == 0 && remote.PeerCount() == 0
 		})
+		sameInstance("disconnected", observe("disconnected", http.StatusServiceUnavailable, 0))
 		// Pinned upstream holds a recent dial for 35 seconds.
 		awaitRecoveryState(t, "fresh static session", 50*time.Second, func() bool {
 			return isReady() && session() != previous
 		})
 		t.Logf("static cycle %d: recovered in %s", cycle, time.Since(started).Round(time.Millisecond))
+		sameInstance("reconnected", observe("reconnected", http.StatusOK, 1))
 	}
 	if h := n.Health(); h.CachedTransactions != 0 || h.WrittenMessages != 0 || h.WriteFailures != 0 {
 		t.Fatalf("unexpected application traffic or cached state: %+v", h)
+	}
+}
+
+func recoveryObservationGET(t *testing.T, client *http.Client, url string, wantStatus int, dst any) {
+	t.Helper()
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != wantStatus {
+		t.Fatalf("GET %s returned %d, want %d", url, resp.StatusCode, wantStatus)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+		t.Fatalf("decode GET %s: %v", url, err)
 	}
 }
 

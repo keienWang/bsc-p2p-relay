@@ -13,7 +13,10 @@ go test -race -tags loopbackrecovery ./internal/relay -run '^TestStaticPeerLoopb
 
 It verifies two transient disconnects and fresh sessions for the same static
 peer over actual TCP/RLPx, with a synthetic genesis and IPv4 loopback-only
-network restrictions. Allow about 70 seconds for the pinned BSC dial-history
+network restrictions. A real loopback HTTP listener verifies `/readyz` switches
+from 200 to 503 and back during each cycle, while `/v1/stats` keeps the same
+instance and creation time with no submissions. Allow about 70 seconds for the
+pinned BSC dial-history
 cooldown (35 seconds per cycle); the test does not override it. This exercises
 connection recovery without sending transactions and does not establish
 public-peer stability, official-pool acceptance, or WAN reconnection latency.
