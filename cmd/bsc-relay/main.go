@@ -92,5 +92,17 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	return shutdownHTTP(shutdown, srv)
+}
+
+// Shutdown stops listeners immediately but leaves active connections open when
+// its context expires. Close them as the bounded drain's final cleanup.
+func shutdownHTTP(ctx context.Context, srv *http.Server) error {
+	if err := srv.Shutdown(ctx); err != nil {
+		if closeErr := srv.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	return nil
 }

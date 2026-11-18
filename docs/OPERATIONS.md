@@ -140,9 +140,10 @@ check that flag-only arguments, including a bare final `--`, reach the normal
 address-validation path. These are argument-parsing tests, not delivery tests.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
-to the verified relay PID. The CLI gives HTTP shutdown a five-second context and
-then closes the P2P server. This is **not a delivery drain**: queued transactions
-can be abandoned. Wait for process exit and record its status. Do not use a
+to the verified relay PID. The CLI allows up to five seconds for HTTP requests
+to finish. If that drain fails, it closes the remaining HTTP connections and
+returns an error. It then closes the P2P server. This is **not a delivery drain**:
+queued transactions can be abandoned. Wait for process exit and record its status. Do not use a
 forced kill as an ordinary shutdown or treat a clean exit as a delivery receipt.
 Any uncompleted or unanswered client request has an uncertain outcome.
 
