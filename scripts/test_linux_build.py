@@ -66,7 +66,7 @@ class FakeRunner(build.BuildRunner):
             return result
         if label == 'artifact-dynamic' and self.mutate:
             binary = pathlib.Path(argv[-1]); binary.write_bytes(binary.read_bytes()[:-1] + b'X')
-        if label == 'official-package-all-tests': return self.event
+        if label in ('official-package-all-tests', 'static-peer-loopback-test'): return self.event
         return 'mock metadata\n'
 
 
@@ -228,6 +228,21 @@ class LinuxBuildTest(unittest.TestCase):
         self.assertEqual(argv, ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + build.LINK_POLICY, '-count=1', '-timeout=180s', './...'])
         self.assertNotIn('ldflags', runner.env['GOFLAGS'])
         self.assertIn('default_race_result=', output)
+
+    def test_loopback_race_runs_the_exact_test_with_offline_qualified_policy(self):
+        name = build.LOOPBACK_TEST
+        event = f'=== RUN   {name}\n--- PASS: {name} (70.02s)\nPASS\n'
+        runner, output = self.exercise('loopback-test', event=event)
+        argv = next(x[1] for x in runner.calls if x[0] == 'static-peer-loopback-test')
+        self.assertEqual(argv, ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + build.LINK_POLICY,
+                                '-tags=loopbackrecovery', '-run', '^' + name + '$',
+                                '-count=1', '-timeout=135s', '-v', './internal/relay'])
+        self.assertEqual(runner.env['GOPROXY'], 'off')
+        self.assertIn('loopback_test_result=', output)
+        for invalid in ('testing: warning: no tests to run\nPASS\n',
+                        event.replace('--- PASS:', '--- SKIP:'), event.rsplit('PASS', 1)[0]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                build.validate_loopback_output(invalid)
 
     def test_official_runs_whole_alternate_graph_binary_after_elf_check(self):
         env = environment(); env['GOFLAGS'] = '-buildvcs=false -mod=readonly -modfile=' + build.MODFILE + ' -tags=officialtxpool'

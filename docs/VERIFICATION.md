@@ -5,7 +5,8 @@ failures or passes below are not claims about an untested later commit.
 
 ## Repeated static-peer redial over loopback
 
-Run the opt-in test separately from the default suite:
+The hosted default job runs this tagged test as a separate step. For local
+verification, run it separately from the default suite:
 
 ```sh
 go test -race -tags loopbackrecovery ./internal/relay -run '^TestStaticPeerLoopbackRecovery$' -count=1 -timeout=2m15s -v
@@ -16,8 +17,8 @@ peer over actual TCP/RLPx, with a synthetic genesis and IPv4 loopback-only
 network restrictions. A real loopback HTTP listener verifies `/readyz` switches
 from 200 to 503 and back during each cycle, while `/v1/stats` keeps the same
 instance and creation time with no submissions. Allow about 70 seconds for the
-pinned BSC dial-history
-cooldown (35 seconds per cycle); the test does not override it. This exercises
+pinned BSC dial-history cooldown (35 seconds per cycle); the test does not
+override it. This exercises
 connection recovery without sending transactions and does not establish
 public-peer stability, official-pool acceptance, or WAN reconnection latency.
 

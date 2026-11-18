@@ -24,6 +24,9 @@ jobs:
       - name: Test the default graph with the qualified linker policy
         timeout-minutes: 6
         run: python3 scripts/linux_build.py race
+      - name: Verify static peer redial and HTTP readiness on loopback
+        timeout-minutes: 6
+        run: python3 scripts/linux_build.py loopback-test
       - name: Build and check the Linux delivery artifact
         timeout-minutes: 4
         run: python3 scripts/linux_build.py build-linux-amd64 --output bsc-relay

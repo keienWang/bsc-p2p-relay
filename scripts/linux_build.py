@@ -238,9 +238,32 @@ def official_test(runner, source, native):
                                 'canonical_child_covered': False})
 
 
+LOOPBACK_TEST = 'TestStaticPeerLoopbackRecovery'
+
+
+def validate_loopback_output(output):
+    lines = output.splitlines()
+    starts = [i for i, line in enumerate(lines) if line == '=== RUN   ' + LOOPBACK_TEST]
+    passes = [i for i, line in enumerate(lines) if re.fullmatch(
+        r'--- PASS: ' + LOOPBACK_TEST + r' \([0-9]+(?:\.[0-9]+)?s\)', line)]
+    require(len(starts) == len(passes) == 1 and starts[0] < passes[0],
+            'loopback recovery requires one RUN then PASS')
+    require(lines.count('PASS') == 1 and lines.index('PASS') > passes[0],
+            'loopback recovery requires final package PASS')
+
+
+def loopback_test(runner, source, native):
+    argv = ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + LINK_POLICY,
+            '-tags=loopbackrecovery', '-run', '^' + LOOPBACK_TEST + '$',
+            '-count=1', '-timeout=135s', '-v', './internal/relay']
+    validate_loopback_output(runner.run('static-peer-loopback-test', argv, 240))
+    check_archive(native)
+    emit('loopback_test_result', {'source': source, 'argv': argv, 'link_policy': LINK_POLICY})
+
+
 def dispatch(runner, action, output):
     # Leave at least 30 seconds before each CI outer step deadline for cleanup.
-    budget = {'build': 210, 'build-linux-amd64': 210, 'race': 330, 'official-test': 450}
+    budget = {'build': 210, 'build-linux-amd64': 210, 'race': 330, 'official-test': 450, 'loopback-test': 330}
     require(action in budget and output in OUTPUTS, 'unsupported operation or output')
     runner.deadline = min(runner.deadline, time.monotonic() + budget[action])
     environment = read_environment(runner)
@@ -265,6 +288,8 @@ def dispatch(runner, action, output):
                    '-count=1', '-timeout=180s', './...'], 240)
         check_archive(native)
         emit('default_race_result', {'source': source, 'link_policy': LINK_POLICY, 'canonical_child_covered': False})
+    elif action == 'loopback-test':
+        loopback_test(runner, source, native)
     elif action == 'official-test':
         official_test(runner, source, native)
     else:
@@ -273,7 +298,7 @@ def dispatch(runner, action, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('build', 'build-linux-amd64', 'race', 'official-test'))
+    parser.add_argument('action', choices=('build', 'build-linux-amd64', 'race', 'official-test', 'loopback-test'))
     parser.add_argument('--output', choices=OUTPUTS, default=OUTPUTS[0])
     args = parser.parse_args()
     dispatch(BuildRunner(ROOT), args.action, args.output)
