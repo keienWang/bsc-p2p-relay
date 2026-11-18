@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import contextlib
+import errno
 import io
 import subprocess
 import unittest
 from unittest import mock
 
-from smoke import check_cli_rejections
+from smoke import check_cli_rejections, check_observation, reserve_loopback_port
 
 
 ERROR = "unexpected positional arguments; use --help for supported flags"
@@ -56,6 +57,23 @@ class CLISmokeTest(unittest.TestCase):
         with mock.patch("smoke.subprocess.run", side_effect=subprocess.TimeoutExpired("fixture", 5)), \
                 self.assertRaises(subprocess.TimeoutExpired):
             check_cli_rejections("/fixture/bsc-relay", "/fixture/work")
+
+
+class LoopbackPortSmokeTest(unittest.TestCase):
+    def test_missing_ipv6_loopback_is_reported_before_launch(self):
+        with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EAFNOSUPPORT, "fixture")), \
+                mock.patch("smoke.subprocess.Popen") as launch, contextlib.redirect_stdout(io.StringIO()) as output:
+            check_observation("/fixture/bsc-relay", observe_only=True, ipv6=True)
+        launch.assert_not_called()
+        self.assertIn("SKIP: IPv6 loopback", output.getvalue())
+
+    def test_port_errors_are_not_swallowed_and_ipv4_is_required(self):
+        with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EACCES, "fixture")):
+            with self.assertRaises(OSError):
+                reserve_loopback_port(ipv6=True)
+        with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EAFNOSUPPORT, "fixture")):
+            with self.assertRaises(OSError):
+                reserve_loopback_port(ipv6=False)
 
 
 if __name__ == "__main__":

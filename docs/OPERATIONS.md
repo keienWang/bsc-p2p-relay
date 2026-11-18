@@ -123,7 +123,8 @@ flags above. No transaction or signing fixture is needed for this manual check.
 
 For an automatic local start/check/stop, the
 [smoke script](../scripts/smoke.py) tests ordinary and observation-only modes on
-temporary loopback ports with discovery disabled and no supplied peer. It uses
+temporary IPv4 loopback ports with discovery disabled and no supplied peer. It
+also checks observation mode on `[::1]` when IPv6 loopback is available. It uses
 only malformed submission probes and checks shutdown and the absence of data
 files:
 

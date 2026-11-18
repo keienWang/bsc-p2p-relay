@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Loopback-only process smoke test. Never submits a signed transaction."""
 import datetime
+import errno
 import json
 import re
 import pathlib
@@ -133,13 +134,14 @@ def main(binary):
             raise AssertionError("CLI rejection left persistent data files")
     check_observation(binary, observe_only=False)
     check_observation(binary, observe_only=True)
+    check_observation(binary, observe_only=True, ipv6=True)
 
 
-def check_observation_rejects_before_body(port):
+def check_observation_rejects_before_body(host, api, port):
     """A wire-level client sends headers only and waits for the first response."""
-    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+    with socket.create_connection((host, port), timeout=2) as connection:
         connection.sendall(
-            f"POST /v1/transactions HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"POST /v1/transactions HTTP/1.1\r\nHost: {api}\r\n"
             "Content-Type: application/json\r\nContent-Length: 16\r\n"
             "Expect: 100-continue\r\nConnection: close\r\n\r\n".encode("ascii")
         )
@@ -149,16 +151,31 @@ def check_observation_rejects_before_body(port):
         raise AssertionError(f"expected observation 403 before any body bytes, got {status_line!r}")
 
 
-def check_observation(binary, observe_only):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    base = f"http://127.0.0.1:{port}"
+def reserve_loopback_port(ipv6):
+    family, host = (socket.AF_INET6, "::1") if ipv6 else (socket.AF_INET, "127.0.0.1")
+    try:
+        with socket.socket(family) as listener:
+            listener.bind((host, 0))
+            return listener.getsockname()[1]
+    except OSError as error:
+        if ipv6 and error.errno in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL):
+            return None
+        raise
+
+
+def check_observation(binary, observe_only, ipv6=False):
+    port = reserve_loopback_port(ipv6)
+    if port is None:
+        print("SKIP: IPv6 loopback is not available on this host")
+        return
+    host = "::1" if ipv6 else "127.0.0.1"
+    api = f"[{host}]:{port}" if ipv6 else f"{host}:{port}"
+    base = f"http://{api}"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix="relay-smoke-") as work:
         flags = ["--observe-only"] if observe_only else []
         process = subprocess.Popen(
-            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", f"127.0.0.1:{port}", *flags],
+            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", api, *flags],
             cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         try:
@@ -195,7 +212,7 @@ def check_observation(binary, observe_only):
                 if observe_only:
                     assert "submission is disabled" in json.load(error)["error"]
             if observe_only:
-                check_observation_rejects_before_body(port)
+                check_observation_rejects_before_body(host, api, port)
             after_rejection = read_stats(opener, base)
             assert_stats_counts(after_rejection, 0 if observe_only else 1)
             assert after_rejection["instance_id"] == initial_stats["instance_id"]
@@ -204,7 +221,7 @@ def check_observation(binary, observe_only):
             assert process.wait(timeout=10) == 0
             assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
             if observe_only:
-                print("PASS: observation-only health/readiness/stats and HTTP 403 before upload")
+                print(f"PASS: observation-only health/readiness/stats and HTTP 403 before upload on {host}")
             else:
                 print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
         finally:
