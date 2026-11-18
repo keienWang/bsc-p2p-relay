@@ -48,32 +48,47 @@ func run() error {
 	if err := relay.LoopbackAddress(*api); err != nil {
 		return err
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runRelay(ctx, stop, cfg, *api, observeOnly)
+}
+
+func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool) error {
+	if ctx.Err() != nil {
+		return nil
+	}
 	node, err := relay.New(cfg)
 	if err != nil {
 		return err
 	}
+	defer node.Close()
+	if ctx.Err() != nil {
+		return nil
+	}
 	if err = node.Start(); err != nil {
 		return err
 	}
-	defer node.Close()
+	if ctx.Err() != nil {
+		return nil
+	}
 	var handler http.Handler
 	if observeOnly {
 		handler = node.ObservationHandler()
 	} else {
 		handler = node.Handler()
 	}
-	srv := &http.Server{Addr: *api, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	srv := &http.Server{Addr: api, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	errs := make(chan error, 1)
 	go func() { errs <- srv.ListenAndServe() }()
-	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", *api, "observe_only", observeOnly, "enode", node.Enode())
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", api, "observe_only", observeOnly, "enode", node.Enode())
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 	case <-ctx.Done():
+		// A second signal may terminate the process if graceful shutdown stalls.
+		stopSignals()
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

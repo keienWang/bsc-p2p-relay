@@ -2,12 +2,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"io"
 	"net"
 	"os"
 	"testing"
+
+	"github.com/keienWang/bsc-p2p-relay/internal/relay"
 )
 
 // An invalid API address is a second, independent startup guard: even without
@@ -62,5 +65,15 @@ func TestFlagOnlyArgumentsReachAddressValidation(t *testing.T) {
 				t.Fatalf("run error = %v, want API address validation error", err)
 			}
 		})
+	}
+}
+
+func TestRunRelaySkipsConstructionWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cfg := relay.DefaultConfig()
+	cfg.MaxPeers = 0 // New would reject this; a canceled startup should not reach it.
+	if err := runRelay(ctx, func() {}, cfg, "127.0.0.1:0", true); err != nil {
+		t.Fatalf("canceled startup returned %v", err)
 	}
 }
