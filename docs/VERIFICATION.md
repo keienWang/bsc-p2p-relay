@@ -3,6 +3,21 @@
 Results are specific to the source and scope stated in each record. Historical
 failures or passes below are not claims about an untested later commit.
 
+## Repeated static-peer redial over loopback
+
+Run the opt-in test separately from the default suite:
+
+```sh
+go test -race -tags loopbackrecovery ./internal/relay -run '^TestStaticPeerLoopbackRecovery$' -count=1 -timeout=2m15s -v
+```
+
+It verifies two transient disconnects and fresh sessions for the same static
+peer over actual TCP/RLPx, with a synthetic genesis and IPv4 loopback-only
+network restrictions. Allow about 70 seconds for the pinned BSC dial-history
+cooldown (35 seconds per cycle); the test does not override it. This exercises
+connection recovery without sending transactions and does not establish
+public-peer stability, official-pool acceptance, or WAN reconnection latency.
+
 ## Node lifecycle hardening, 2026-11-11
 
 The [lifecycle verification record](NODE_LIFECYCLE.md#independent-review-and-aggregate-local-verification)
