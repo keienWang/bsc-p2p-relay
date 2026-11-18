@@ -79,6 +79,10 @@ leftover arguments fail startup rather than silently ignoring later flags. Use
 `--no-discovery=false` to supply an explicit boolean value, not
 `--no-discovery false`.
 
+For an isolated status-only rehearsal, follow the
+[loopback observation commands](docs/OPERATIONS.md#local-start-inspection-and-stop).
+`--observe-only` disables HTTP transaction submission, not P2P networking.
+
 Do not expose the HTTP API through a reverse proxy, tunnel, or public port forward. It has no authentication and this milestone disallows a remote API listener. The P2P listener is a separate network surface.
 
 ## HTTP API

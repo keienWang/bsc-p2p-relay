@@ -94,7 +94,7 @@ From the repository root, with an already built, reviewed binary at
 
 ```sh
 ./bin/bsc-relay --network mainnet --no-discovery \
-  --p2p 127.0.0.1:0 --api 127.0.0.1:8787
+  --observe-only --p2p 127.0.0.1:0 --api 127.0.0.1:8787
 ```
 
 This selects mainnet encoding/genesis locally but supplies no peers and does not
@@ -107,15 +107,25 @@ In another terminal, bypass any configured HTTP proxy and do not follow redirect
 ```sh
 curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/healthz
 curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/readyz
+curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/v1/stats
 ```
 
 Expected in this isolated mode: `/healthz` is 200, `ready_peers` and
 `connected_peers` are 0, `confirmation_tracking` is false, and `/readyz` is 503.
 That 503 is expected, not a reason to enable public discovery during a smoke test.
-For an automatic local start/check/stop, the existing
-[smoke script](../scripts/smoke.py) chooses a temporary loopback API port, disables
-discovery, supplies no peer, sends only malformed transaction bytes and checks
-shutdown plus the absence of data files:
+`/v1/stats` is 200; record its `instance_id` alongside samples. A changed ID
+means the counters belong to a different Node, not that the old Node recovered.
+
+`--observe-only` disables the HTTP submission route before body parsing, without
+incrementing Submit or admission-concurrency counters. It does not disable the
+P2P listener, static-peer dialing or discovery by itself; keep the isolation
+flags above. No transaction or signing fixture is needed for this manual check.
+
+For an automatic local start/check/stop, the
+[smoke script](../scripts/smoke.py) tests ordinary and observation-only modes on
+temporary loopback ports with discovery disabled and no supplied peer. It uses
+only malformed submission probes and checks shutdown and the absence of data
+files:
 
 ```sh
 python3 scripts/smoke.py ./bin/bsc-relay
