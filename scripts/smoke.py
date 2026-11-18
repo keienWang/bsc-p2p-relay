@@ -135,6 +135,20 @@ def main(binary):
     check_observation(binary, observe_only=True)
 
 
+def check_observation_rejects_before_body(port):
+    """A wire-level client sends headers only and waits for the first response."""
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+        connection.sendall(
+            f"POST /v1/transactions HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            "Content-Type: application/json\r\nContent-Length: 16\r\n"
+            "Expect: 100-continue\r\nConnection: close\r\n\r\n".encode("ascii")
+        )
+        with connection.makefile("rb") as response:
+            status_line = response.readline(256)
+    if not re.fullmatch(rb"HTTP/1\.1 403 [^\r\n]+\r\n", status_line):
+        raise AssertionError(f"expected observation 403 before any body bytes, got {status_line!r}")
+
+
 def check_observation(binary, observe_only):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -180,6 +194,8 @@ def check_observation(binary, observe_only):
                 assert error.code == (403 if observe_only else 400)
                 if observe_only:
                     assert "submission is disabled" in json.load(error)["error"]
+            if observe_only:
+                check_observation_rejects_before_body(port)
             after_rejection = read_stats(opener, base)
             assert_stats_counts(after_rejection, 0 if observe_only else 1)
             assert after_rejection["instance_id"] == initial_stats["instance_id"]
@@ -188,7 +204,7 @@ def check_observation(binary, observe_only):
             assert process.wait(timeout=10) == 0
             assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
             if observe_only:
-                print("PASS: observation-only health/readiness/stats and disabled HTTP submission")
+                print("PASS: observation-only health/readiness/stats and HTTP 403 before upload")
             else:
                 print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
         finally:
