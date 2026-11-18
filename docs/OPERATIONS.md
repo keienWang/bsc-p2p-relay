@@ -72,6 +72,7 @@ The positional-error message deliberately does not print supplied arguments.
 | `--p2p` | `:30311` | P2P listen address; use `127.0.0.1:0` for an isolated, ephemeral TCP port. Binding errors fail startup. |
 | `--api` | `127.0.0.1:8787` | Literal loopback IP and port only, for example `127.0.0.1:8787` or `[::1]:8787`. `localhost:8787`, `:8787` and `0.0.0.0:8787` are rejected. |
 | `--no-discovery` | `false` | Disables discovery, not static peer dialing or the P2P listener. |
+| `--observe-only` | `false` | Keeps health, readiness and stats; disables HTTP transaction submission without changing P2P. |
 | `--max-peers` | `20` | Integer from 1 through 200. This is not a required-ready-peer count. |
 | `--cache-count` | `1024` | Integer at least 1. No additional application maximum is validated. |
 | `--cache-bytes` | `16777216` | Integer at least 131072. Counts serialized transaction bytes, not process RSS. |
@@ -198,6 +199,7 @@ broken connection need not produce this application JSON schema.
 | 429 | `transaction memory cache is full` | New hash cannot fit count or serialized-byte capacity. Both limits share this error. No new entry was inserted. Inspect occupancy and arrival/retention budgets. |
 | 429 | `all peer queues are full; retry later` | No new queue admission succeeded. A fresh cache insertion is rolled back; a previously cached hash remains. A closing session or bounded peer sent-map can also make admission unavailable: this string is not a queue-depth measurement. |
 | 429 | `transaction expired during admission; retry later` | Its cache deadline passed during admission. Expired state is pruned; do not count it as a successful live admission. |
+| 403 | `transaction submission is disabled in observation mode` | Expected with `--observe-only`; do not submit to this process. |
 | 403 | `invalid local Host header`; `browser-origin requests are not allowed` | Use the direct local endpoint with a loopback/localhost Host and no nonempty Origin. Do not bypass this with a public proxy. |
 | 405 | `GET required`; `POST required` | Use the documented method for the selected path. |
 | 415 | `application/json required` | Set the JSON content type. |

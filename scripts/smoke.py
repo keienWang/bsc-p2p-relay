@@ -131,14 +131,20 @@ def main(binary):
         check_cli_rejections(binary, work)
         if list(pathlib.Path(work).iterdir()):
             raise AssertionError("CLI rejection left persistent data files")
+    check_observation(binary, observe_only=False)
+    check_observation(binary, observe_only=True)
+
+
+def check_observation(binary, observe_only):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix="relay-smoke-") as work:
+        flags = ["--observe-only"] if observe_only else []
         process = subprocess.Popen(
-            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", f"127.0.0.1:{port}"],
+            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", f"127.0.0.1:{port}", *flags],
             cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         try:
@@ -165,20 +171,26 @@ def main(binary):
             assert_stats_counts(repeated_stats, 0)
             assert repeated_stats["instance_id"] == initial_stats["instance_id"]
             assert repeated_stats["created_at"] == initial_stats["created_at"]
-            request = urllib.request.Request(base + "/v1/transactions", data=b'{"raw_tx":"0x00"}', headers={"Content-Type": "application/json"})
+            body = b"not JSON" if observe_only else b'{"raw_tx":"0x00"}'
+            request = urllib.request.Request(base + "/v1/transactions", data=body, headers={"Content-Type": "application/json"})
             try:
                 opener.open(request, timeout=2)
                 raise AssertionError("malformed transaction accepted")
             except urllib.error.HTTPError as error:
-                assert error.code == 400
+                assert error.code == (403 if observe_only else 400)
+                if observe_only:
+                    assert "submission is disabled" in json.load(error)["error"]
             after_rejection = read_stats(opener, base)
-            assert_stats_counts(after_rejection, 1)
+            assert_stats_counts(after_rejection, 0 if observe_only else 1)
             assert after_rejection["instance_id"] == initial_stats["instance_id"]
             assert after_rejection["created_at"] == initial_stats["created_at"]
             process.send_signal(signal.SIGTERM)
             assert process.wait(timeout=10) == 0
             assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
-            print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
+            if observe_only:
+                print("PASS: observation-only health/readiness/stats and disabled HTTP submission")
+            else:
+                print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
         finally:
             if process.poll() is None:
                 process.kill()

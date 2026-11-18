@@ -34,6 +34,16 @@ func apiError(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{"error": message})
 }
 func (n *Node) Handler() http.Handler {
+	return n.httpHandler(false)
+}
+
+// ObservationHandler exposes health, readiness, and stats without accepting
+// transaction submissions. It does not change the P2P protocol.
+func (n *Node) ObservationHandler() http.Handler {
+	return n.httpHandler(true)
+}
+
+func (n *Node) httpHandler(observeOnly bool) http.Handler {
 	slots := make(chan struct{}, 8)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -69,6 +79,10 @@ func (n *Node) Handler() http.Handler {
 			}
 			jsonResponse(w, 200, n.Stats())
 		case "/v1/transactions":
+			if observeOnly {
+				apiError(w, http.StatusForbidden, "transaction submission is disabled in observation mode")
+				return
+			}
 			if r.Method != http.MethodPost {
 				apiError(w, 405, "POST required")
 				return

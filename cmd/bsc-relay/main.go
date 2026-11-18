@@ -32,6 +32,8 @@ func run() error {
 	flag.StringVar(&cfg.Network, "network", cfg.Network, "mainnet (56) or testnet (97)")
 	flag.StringVar(&cfg.ListenAddr, "p2p", cfg.ListenAddr, "P2P TCP/UDP listen address")
 	api := flag.String("api", "127.0.0.1:8787", "loopback HTTP listen address")
+	var observeOnly bool
+	flag.BoolVar(&observeOnly, "observe-only", false, "keep observation endpoints but disable HTTP transaction submission")
 	flag.BoolVar(&cfg.NoDiscovery, "no-discovery", false, "disable discovery; use explicit static peers")
 	flag.IntVar(&cfg.MaxPeers, "max-peers", cfg.MaxPeers, "maximum P2P peers (1..200)")
 	flag.IntVar(&cfg.CacheCount, "cache-count", cfg.CacheCount, "maximum cached transactions")
@@ -54,10 +56,16 @@ func run() error {
 		return err
 	}
 	defer node.Close()
-	srv := &http.Server{Addr: *api, Handler: node.Handler(), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	var handler http.Handler
+	if observeOnly {
+		handler = node.ObservationHandler()
+	} else {
+		handler = node.Handler()
+	}
+	srv := &http.Server{Addr: *api, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	errs := make(chan error, 1)
 	go func() { errs <- srv.ListenAndServe() }()
-	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", *api, "enode", node.Enode())
+	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", *api, "observe_only", observeOnly, "enode", node.Enode())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	select {
