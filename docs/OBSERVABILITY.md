@@ -116,3 +116,36 @@ are not authentication or isolation from other host users/processes. There is no
 metrics exporter, per-hash history, identifying metric label, reset endpoint,
 resource sampler, histogram or additional background goroutine. Existing cache
 limits and all [production gates](PRODUCTION_READINESS.md) remain unchanged.
+
+## Offline snapshot deltas
+
+Save two successful response **bodies** from sequential, non-overlapping scrapes
+of the same reviewed loopback endpoint. For example, before and after a bounded
+observation interval (do not use `-i`, which also saves HTTP headers):
+
+```sh
+curl --noproxy '*' --fail --connect-timeout 2 --max-time 5 \
+  http://127.0.0.1:8787/v1/stats > before.json
+# Later, after the first request has completed:
+curl --noproxy '*' --fail --connect-timeout 2 --max-time 5 \
+  http://127.0.0.1:8787/v1/stats > after.json
+python3 scripts/stats_delta.py before.json after.json
+```
+
+Check both curl exit statuses; do not treat a failed collection as a snapshot.
+The standard-library-only comparison tool makes no network requests and reads
+at most 16 KiB plus one byte per file. It validates the frozen v1 schema using
+the smoke validator, preserves uint64 integer precision, and rejects changed
+instance/creation metadata, any decreasing counter, malformed/truncated JSON,
+duplicate fields, and oversized snapshots. Failure exits 1, writes a diagnostic
+to stderr and emits no result to stdout; it never substitutes zero counters.
+
+`submit_delta` and `http_delta` retain their original counter field names but
+contain differences, not cumulative totals. They remain separate denominators.
+The output retains both wall-clock observation timestamps for context but does
+not compute rates, a combined total, throughput, delivery, or success percentages.
+Wall clocks can move backward. The tool cannot prove that the caller supplied
+ordered samples from the same endpoint, detect intervening restarts with forged
+metadata, or make snapshots globally atomic. Counter wrap invalidates a delta
+rather than being interpreted as activity. All observation limitations above
+still apply; the tool is not an exporter, monitor, or production readiness gate.
