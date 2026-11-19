@@ -200,3 +200,27 @@ output) is preserved, failures exit nonzero, and temporary files are cleaned up.
 The destination directory must already exist and support hard links. This is
 atomic visibility, not a promise of directory-entry durability after power loss.
 Without `--output`, the command still emits the JSON comparison to stdout.
+
+### Readiness scope and polling cost
+
+`/readyz` reports whether any connected session negotiated transaction receive
+capability. It can remain HTTP 200 with a full local cache or full outgoing
+queue: it is not an admission-capacity check, remote acceptance, or confirmation.
+`/healthz` remains HTTP 200 when no such session exists. Both handler modes use
+this same rule. `TestHealthReadinessCapabilityAndCapacity` guards these semantics
+across capability transitions with full synthetic cache/queue fixtures and
+verifies polling does not submit work or drain queues.
+
+`BenchmarkHealthObservation` measures direct serial/parallel `Health()` reads
+and the readiness handler plus `ResponseRecorder`, with 0/20/200 synthetic
+sessions and 0/1024 cached entries. Run it with the qualified Linux linker policy:
+
+```sh
+go test -ldflags=-extldflags=-Wl,-z,noexecstack ./internal/relay \
+  -run '^$' -bench '^BenchmarkHealthObservation$' -benchmem -count=3
+```
+
+Unlike `Stats()`, `Health()` takes peer/cache locks and prunes expired cache
+entries. The benchmark keeps entries unexpired, so it does not measure expiry
+cohorts, live session churn, socket latency, or transaction throughput. Compare
+results only with matching toolchain/CPU/concurrency; timings are not CI gates.
