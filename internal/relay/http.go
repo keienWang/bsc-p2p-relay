@@ -63,6 +63,7 @@ func (n *Node) httpHandler(observeOnly bool) http.Handler {
 		switch r.URL.Path {
 		case "/healthz", "/readyz":
 			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
 				apiError(w, 405, "GET required")
 				return
 			}
@@ -74,6 +75,7 @@ func (n *Node) httpHandler(observeOnly bool) http.Handler {
 			jsonResponse(w, status, health)
 		case "/v1/stats":
 			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
 				apiError(w, 405, "GET required")
 				return
 			}
@@ -84,6 +86,7 @@ func (n *Node) httpHandler(observeOnly bool) http.Handler {
 				return
 			}
 			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
 				apiError(w, 405, "POST required")
 				return
 			}

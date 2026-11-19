@@ -216,7 +216,7 @@ broken connection need not produce this application JSON schema.
 | 429 | `transaction expired during admission; retry later` | Its cache deadline passed during admission. Expired state is pruned; do not count it as a successful live admission. |
 | 403 | `transaction submission is disabled in observation mode` | Expected with `--observe-only`; do not submit to this process. |
 | 403 | `invalid local Host header`; `browser-origin requests are not allowed` | Use the direct local endpoint with a loopback/localhost Host and no nonempty Origin. Do not bypass this with a public proxy. |
-| 405 | `GET required`; `POST required` | Use the documented method for the selected path. |
+| 405 | `GET required`; `POST required` | Use the method advertised in the `Allow` response header for the selected path. |
 | 415 | `application/json required` | Set the JSON content type. |
 | 404 | `not found` | Check the path; there is no transaction lookup, RPC, `/metrics` or profiling endpoint. |
 
@@ -435,3 +435,14 @@ decode/signature errors. It neither starts a node nor
 accesses the network and does not validate runtime behavior, external URLs,
 timing, capacity, CI or production readiness. Use the separate release
 verification gates for those claims.
+
+### Method discovery on rejection
+
+A method-rejection 405 includes `Allow: GET` for observation paths or
+`Allow: POST` for the ordinary transaction path, as required by
+[RFC 9110 section 15.5.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.6).
+This does not enable new methods, OPTIONS, CORS, or submission in observation
+mode. Observation-only transaction requests remain 403 without an Allow
+advertisement; Host/Origin refusals still run before method handling. Error JSON
+and counter semantics are unchanged. An Allow header describes a method, not
+authorization, readiness, successful submission, or a reason to retry blindly.
