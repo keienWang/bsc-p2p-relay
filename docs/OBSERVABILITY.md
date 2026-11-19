@@ -149,3 +149,29 @@ ordered samples from the same endpoint, detect intervening restarts with forged
 metadata, or make snapshots globally atomic. Counter wrap invalidates a delta
 rather than being interpreted as activity. All observation limitations above
 still apply; the tool is not an exporter, monitor, or production readiness gate.
+
+### Capture without partial baseline files
+
+For a new file rather than shell redirection, the optional one-shot collector
+validates the response before publishing it:
+
+```sh
+python3 scripts/capture_stats.py 127.0.0.1:8787 before.json
+# After the first command succeeds and the observation interval has elapsed:
+python3 scripts/capture_stats.py 127.0.0.1:8787 after.json
+python3 scripts/stats_delta.py before.json after.json
+```
+
+Only literal loopback IPs with explicit ports are accepted (`[::1]:8787` works);
+hostnames, public addresses, URL paths, credentials and query strings are rejected.
+The collector makes one GET to `/v1/stats`, ignores environment HTTP proxies and
+does not follow redirects. It reuses the smoke reader's status/header/schema,
+framing and 16 KiB response checks, with its two-second socket timeout. This is
+not a total wall-clock deadline for a slow stream and not a polling daemon.
+
+The output directory must already exist and support same-directory hard links.
+The validated JSON is written to a temporary file and atomically published as a
+**new** filename; an existing baseline is never overwritten. Failures return 1
+and no success message. Invalid HTTP/JSON observations never produce a baseline
+file. Keep checking exit statuses and keep collections sequential; this wrapper
+does not change the counter/delta interpretation or authorize public exposure.
