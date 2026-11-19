@@ -41,7 +41,7 @@ func TestStaticPeerLoopbackRecovery(t *testing.T) {
 	chainCfg := *params.AllEthashProtocolChanges
 	chainCfg.ChainID = big.NewInt(13371338)
 	genesis := (&core.Genesis{Config: &chainCfg, GasLimit: 30_000_000, Difficulty: big.NewInt(1)}).ToBlock()
-	n.chain = &chainView{config: &chainCfg, genesis: genesis}
+	n.chain = newChainView(&chainCfg, genesis)
 	loopback, err := netutil.ParseNetlist("127.0.0.0/8")
 	if err != nil {
 		t.Fatal(err)

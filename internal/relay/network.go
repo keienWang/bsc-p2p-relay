@@ -11,8 +11,9 @@ import (
 // chainView deliberately advertises genesis, not an unverified peer's head.
 // Genesis construction uses only transient memory, never a persistent chain DB.
 type chainView struct {
-	config  *params.ChainConfig
-	genesis *types.Block
+	config      *params.ChainConfig
+	genesis     *types.Block
+	chainIDText string // Immutable display value of the configured chain ID.
 }
 
 func (c *chainView) Config() *params.ChainConfig  { return c.config }
@@ -28,5 +29,11 @@ func network(name string) (*chainView, error) {
 	default:
 		return nil, fmt.Errorf("network must be mainnet or testnet")
 	}
-	return &chainView{g.Config, g.ToBlock()}, nil
+	return newChainView(g.Config, g.ToBlock()), nil
+}
+
+// Network configuration is fixed for the lifetime of a chainView. Construct a
+// new view when selecting another chain, rather than mutating its config.
+func newChainView(config *params.ChainConfig, genesis *types.Block) *chainView {
+	return &chainView{config: config, genesis: genesis, chainIDText: config.ChainID.String()}
 }

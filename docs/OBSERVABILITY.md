@@ -224,3 +224,9 @@ Unlike `Stats()`, `Health()` takes peer/cache locks and prunes expired cache
 entries. The benchmark keeps entries unexpired, so it does not measure expiry
 cohorts, live session churn, socket latency, or transaction throughput. Compare
 results only with matching toolchain/CPU/concurrency; timings are not CI gates.
+
+Chain ID display text is computed when constructing the immutable chain view,
+not during each health poll. `TestHealthChainIdentityAndAllocations` checks the
+mainnet/testnet identity and zero allocations for direct steady-state `Health()`;
+a separate regression checks replacement synthetic chain views. This does not
+make `Health()` lock-free or make HTTP JSON encoding allocation-free.

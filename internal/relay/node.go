@@ -216,7 +216,7 @@ func (n *Node) Health() Health {
 	}
 	n.mu.RUnlock()
 	count, bytes := n.cache.stats()
-	return Health{n.cfg.Network, n.chain.config.ChainID.String(), ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}
+	return Health{n.cfg.Network, n.chain.chainIDText, ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}
 }
 
 // Submit reports bounded local queue admission, never peer acceptance/inclusion.

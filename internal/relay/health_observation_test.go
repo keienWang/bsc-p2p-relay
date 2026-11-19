@@ -3,6 +3,7 @@ package relay
 
 import (
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -118,5 +119,40 @@ func BenchmarkHealthObservation(b *testing.B) {
 				})
 			})
 		}
+	}
+}
+
+func TestHealthChainIdentityAndAllocations(t *testing.T) {
+	for _, name := range []string{"mainnet", "testnet"} {
+		t.Run(name, func(t *testing.T) {
+			n := loadNode(t, 1, 0, 1)
+			n.cfg.Network = name
+			chain, err := network(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n.chain = chain
+			want := n.chain.config.ChainID.String()
+			var last Health
+			allocations := testing.AllocsPerRun(1000, func() { last = n.Health() })
+			if last.ChainID != want || last.Network != name {
+				t.Fatalf("wrong network identity: %+v", last)
+			}
+			if allocations != 0 {
+				t.Fatalf("Health allocations=%g; want zero", allocations)
+			}
+			runtime.KeepAlive(last)
+		})
+	}
+}
+
+func TestHealthReflectsReplacementChainView(t *testing.T) {
+	n := loadNode(t, 1, 0, 1)
+	original := n.Health().ChainID
+	cfg := *n.chain.config
+	cfg.ChainID = big.NewInt(13371338)
+	n.chain = newChainView(&cfg, n.chain.genesis)
+	if h := n.Health(); h.ChainID != "13371338" || h.ChainID == original {
+		t.Fatalf("replacement view has stale identity: %+v", h)
 	}
 }
