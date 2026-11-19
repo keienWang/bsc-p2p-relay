@@ -7,6 +7,7 @@ import pathlib
 import sys
 
 from smoke import MAX_STATS_RESPONSE_BYTES, decode_stats
+from capture_stats import save_new_snapshot
 
 
 def read_snapshot(path):
@@ -46,13 +47,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", help="earlier saved JSON response body")
     parser.add_argument("after", help="later saved JSON response body from the same endpoint/instance")
+    parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
     args = parser.parse_args(argv)
     try:
         result = compare_snapshots(read_snapshot(args.before), read_snapshot(args.after))
+        if args.output is not None:
+            save_new_snapshot(args.output, result)
     except (OSError, ValueError, RecursionError) as error:
         print("statistics unavailable: " + str(error), file=sys.stderr)
         return 1
-    print(json.dumps(result, sort_keys=True, indent=2))
+    if args.output is None:
+        print(json.dumps(result, sort_keys=True, indent=2))
+    else:
+        print("Saved validated statistics comparison.")
     return 0
 
 

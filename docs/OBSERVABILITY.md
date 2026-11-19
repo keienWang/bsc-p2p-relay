@@ -185,3 +185,18 @@ covers file interchange, exact uint64 deltas and nanosecond metadata, rejected
 restart/reset comparisons, and preservation of an existing baseline on a failed
 repeat capture. It runs in the ordinary Python test suite. This fixture validates
 the operator-tool pipeline, not live peer readiness, throughput, or delivery.
+
+To keep a comparison as an artifact without shell redirection truncating an
+existing report, use:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json --output delta.json
+```
+
+The optional output is published only after both snapshots and the comparison
+pass validation. It uses the collector's same-directory temporary-file and
+atomic no-clobber publication: an existing report (or an input snapshot used as
+output) is preserved, failures exit nonzero, and temporary files are cleaned up.
+The destination directory must already exist and support hard links. This is
+atomic visibility, not a promise of directory-entry durability after power loss.
+Without `--output`, the command still emits the JSON comparison to stdout.

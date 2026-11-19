@@ -107,6 +107,33 @@ class ObservationPipelineTests(unittest.TestCase):
                 self.assertEqual((result.returncode, result.stdout), (1, ""))
                 self.assertIn(message, result.stderr)
 
+    def test_comparison_output_is_atomic_no_clobber_and_validated_first(self):
+        before, after = sample(), sample()
+        after["http"]["concurrency_rejected_total"] = 7
+        self.capture("before.json", before)
+        self.capture("after.json", after)
+        args = ("before.json", "after.json", "--output", "delta.json")
+        result = self.run_cli("stats_delta.py", *args)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        target = self.work / "delta.json"
+        original = target.read_bytes()
+        stdout = self.run_cli("stats_delta.py", "before.json", "after.json")
+        self.assertEqual(json.loads(original), json.loads(stdout.stdout))
+        duplicate = self.run_cli("stats_delta.py", *args)
+        self.assertEqual((duplicate.returncode, duplicate.stdout), (1, ""))
+        self.assertEqual(target.read_bytes(), original)
+        reset = self.run_cli("stats_delta.py", "after.json", "before.json", "--output", "invalid.json")
+        self.assertEqual((reset.returncode, reset.stdout), (1, ""))
+        self.assertIn("counter decreased", reset.stderr)
+        self.assertFalse((self.work / "invalid.json").exists())
+        collision = self.run_cli("stats_delta.py", "before.json", "after.json", "--output", "before.json")
+        self.assertEqual((collision.returncode, collision.stdout), (1, ""))
+        self.assertEqual(json.loads((self.work / "before.json").read_bytes()), before)
+        missing = self.run_cli("stats_delta.py", "before.json", "after.json", "--output", "missing/delta.json")
+        self.assertEqual((missing.returncode, missing.stdout), (1, ""))
+        self.assertEqual(sorted(path.name for path in self.work.iterdir()),
+                         ["after.json", "before.json", "delta.json"])
+
     def test_duplicate_capture_preserves_baseline_and_cli_fails(self):
         self.capture("before.json", sample())
         original = (self.work / "before.json").read_bytes()
