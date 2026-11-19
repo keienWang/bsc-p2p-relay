@@ -175,3 +175,13 @@ The validated JSON is written to a temporary file and atomically published as a
 and no success message. Invalid HTTP/JSON observations never produce a baseline
 file. Keep checking exit statuses and keep collections sequential; this wrapper
 does not change the counter/delta interpretation or authorize public exposure.
+
+### Collector/comparator command-line regression
+
+`python3 -m unittest discover -s scripts -p 'test_observation_pipeline.py'`
+exercises the capture and comparison scripts as separate processes from a fresh
+working directory. A loopback-only HTTP fixture supplies snapshots; the check
+covers file interchange, exact uint64 deltas and nanosecond metadata, rejected
+restart/reset comparisons, and preservation of an existing baseline on a failed
+repeat capture. It runs in the ordinary Python test suite. This fixture validates
+the operator-tool pipeline, not live peer readiness, throughput, or delivery.
