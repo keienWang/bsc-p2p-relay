@@ -99,8 +99,11 @@ From the repository root, with an already built, reviewed binary at
 
 This selects mainnet encoding/genesis locally but supplies no peers and does not
 enable discovery. It is not a mainnet broadcast exercise. The binary prints a
-startup message with network, API address and ephemeral enode. An API bind can
-still fail after that message, so verify process survival and the endpoints.
+startup message only after the HTTP listener binds successfully, with network,
+actual bound API address (including the selected port for `--api 127.0.0.1:0`),
+and ephemeral enode. A bind failure returns an error without that message and
+closes the already-started P2P server. The message is not a readiness guarantee:
+verify process survival and the endpoints; peers may still be absent.
 
 In another terminal, bypass any configured HTTP proxy and do not follow redirects:
 

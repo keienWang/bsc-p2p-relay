@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -78,9 +79,16 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 		handler = node.Handler()
 	}
 	srv := &http.Server{Addr: api, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	// Bind synchronously so startup logs never announce an API whose listener
+	// failed to open. Serve owns the listener; defer also covers early returns.
+	listener, err := net.Listen("tcp", api)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 	errs := make(chan error, 1)
-	go func() { errs <- srv.ListenAndServe() }()
-	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", api, "observe_only", observeOnly, "enode", node.Enode())
+	go func() { errs <- srv.Serve(listener) }()
+	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", listener.Addr().String(), "observe_only", observeOnly, "enode", node.Enode())
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
