@@ -127,9 +127,11 @@ flags above. No transaction or signing fixture is needed for this manual check.
 For an automatic local start/check/stop, the
 [smoke script](../scripts/smoke.py) tests ordinary and observation-only modes on
 temporary IPv4 loopback ports with discovery disabled and no supplied peer. It
-also checks observation mode on `[::1]` when IPv6 loopback is available. It uses
-only malformed submission probes and checks shutdown and the absence of data
-files:
+also checks observation mode on `[::1]` when IPv6 loopback is available. The
+relay binds port `0` and reports its kernel-selected API address; the script
+checks that address instead of releasing and rebinding a preselected port. It
+uses only malformed submission probes and checks shutdown and the absence of
+data files:
 
 ```sh
 python3 scripts/smoke.py ./bin/bsc-relay

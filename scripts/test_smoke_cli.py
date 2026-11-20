@@ -3,10 +3,12 @@ import contextlib
 import errno
 import io
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
-from smoke import check_cli_rejections, check_observation, reserve_loopback_port
+from smoke import (MAX_STARTUP_LOG_BYTES, check_cli_rejections, check_observation,
+                   ipv6_loopback_available, startup_endpoint, wait_startup_endpoint)
 
 
 ERROR = "unexpected positional arguments; use --help for supported flags"
@@ -67,13 +69,43 @@ class LoopbackPortSmokeTest(unittest.TestCase):
         launch.assert_not_called()
         self.assertIn("SKIP: IPv6 loopback", output.getvalue())
 
-    def test_port_errors_are_not_swallowed_and_ipv4_is_required(self):
+    def test_ipv6_permission_errors_are_not_swallowed(self):
         with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EACCES, "fixture")):
             with self.assertRaises(OSError):
-                reserve_loopback_port(ipv6=True)
-        with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EAFNOSUPPORT, "fixture")):
-            with self.assertRaises(OSError):
-                reserve_loopback_port(ipv6=False)
+                ipv6_loopback_available()
+
+
+class StartupEndpointSmokeTest(unittest.TestCase):
+    @staticmethod
+    def record(api, mode=b"true"):
+        return (b"2026/11/21 00:00:00 INFO experimental relay started; no chain/state verification or confirmations "
+                b'network=mainnet api=' + api + b' observe_only=' + mode + b' enode=fixture\n')
+
+    def test_only_complete_own_bound_endpoint(self):
+        v4 = self.record(b"127.0.0.1:12345", b"false")
+        v6 = self.record(b"[::1]:54321")
+        self.assertIsNone(startup_endpoint(v4[:-1], "127.0.0.1", False))
+        self.assertIsNone(startup_endpoint(b"unrelated api=127.0.0.1:12345\n", "127.0.0.1", False))
+        self.assertEqual(startup_endpoint(b"earlier log\n" + v4, "127.0.0.1", False), ("127.0.0.1:12345", 12345))
+        self.assertEqual(startup_endpoint(v6, "::1", True), ("[::1]:54321", 54321))
+        for api in (b"127.0.0.1:0", b"127.0.0.1:65536", b"127.0.0.1:80/path", b"[::1]:12345", b"127.0.0.2:12345"):
+            with self.subTest(api=api), self.assertRaisesRegex(ValueError, "expected loopback"):
+                startup_endpoint(self.record(api), "127.0.0.1", True)
+        with self.assertRaisesRegex(ValueError, "wrong observation mode"):
+            startup_endpoint(v4, "127.0.0.1", True)
+
+    def test_exited_process_and_log_budget_are_not_success(self):
+        with tempfile.TemporaryFile() as log:
+            process = mock.Mock()
+            process.poll.return_value = 1
+            log.write(self.record(b"127.0.0.1:12345"))
+            log.flush()
+            with self.assertRaisesRegex(RuntimeError, "exited before smoke"):
+                wait_startup_endpoint(process, log, "127.0.0.1", True)
+            log.write(b"x" * MAX_STARTUP_LOG_BYTES)
+            log.flush()
+            with self.assertRaisesRegex(RuntimeError, "log budget"):
+                wait_startup_endpoint(process, log, "127.0.0.1", True)
 
 
 if __name__ == "__main__":

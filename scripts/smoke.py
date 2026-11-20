@@ -3,6 +3,7 @@
 import datetime
 import errno
 import json
+import os
 import re
 import pathlib
 import signal
@@ -151,45 +152,75 @@ def check_observation_rejects_before_body(host, api, port):
         raise AssertionError(f"expected observation 403 before any body bytes, got {status_line!r}")
 
 
-def reserve_loopback_port(ipv6):
-    family, host = (socket.AF_INET6, "::1") if ipv6 else (socket.AF_INET, "127.0.0.1")
+def ipv6_loopback_available():
     try:
-        with socket.socket(family) as listener:
-            listener.bind((host, 0))
-            return listener.getsockname()[1]
+        with socket.socket(socket.AF_INET6) as listener:
+            listener.bind(("::1", 0))
     except OSError as error:
-        if ipv6 and error.errno in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL):
-            return None
+        if error.errno in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL):
+            return False
         raise
+    return True
+
+
+STARTUP_API = re.compile(
+    rb"^[0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} INFO "
+    rb"experimental relay started; no chain/state verification or confirmations "
+    rb'network=mainnet api=([^ \r\n]+) observe_only=(true|false) ')
+MAX_STARTUP_LOG_BYTES = 32 * 1024
+
+
+def startup_endpoint(log, host, observe_only):
+    for line in log.splitlines(keepends=True):
+        if not line.endswith(b"\n"):
+            continue  # Do not interpret a partially written log record.
+        match = STARTUP_API.match(line)
+        if match is None:
+            continue
+        address, mode = (value.decode("ascii") for value in match.groups())
+        authority = f"[{host}]" if host == "::1" else host
+        port = re.fullmatch(re.escape(authority) + r":([0-9]{1,5})", address)
+        if port is None or not 1 <= int(port[1]) <= 65535:
+            raise ValueError("startup log did not identify the expected loopback endpoint")
+        if mode != str(observe_only).lower():
+            raise ValueError("startup log reported the wrong observation mode")
+        return address, int(port[1])
+    return None
+
+
+def wait_startup_endpoint(process, log, host, observe_only):
+    deadline = time.monotonic() + 5
+    while True:
+        output = os.pread(log.fileno(), MAX_STARTUP_LOG_BYTES + 1, 0)
+        if len(output) > MAX_STARTUP_LOG_BYTES:
+            raise RuntimeError("relay exceeded startup log budget")
+        if process.poll() is not None:
+            raise RuntimeError("relay exited before smoke observation: " + output.decode(errors="replace"))
+        if endpoint := startup_endpoint(output, host, observe_only):
+            return endpoint
+        if time.monotonic() >= deadline:
+            raise RuntimeError("relay did not report a bound API: " + output.decode(errors="replace"))
+        time.sleep(0.05)
 
 
 def check_observation(binary, observe_only, ipv6=False):
-    port = reserve_loopback_port(ipv6)
-    if port is None:
+    if ipv6 and not ipv6_loopback_available():
         print("SKIP: IPv6 loopback is not available on this host")
         return
     host = "::1" if ipv6 else "127.0.0.1"
-    api = f"[{host}]:{port}" if ipv6 else f"{host}:{port}"
-    base = f"http://{api}"
+    bind = "[::1]:0" if ipv6 else "127.0.0.1:0"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with tempfile.TemporaryDirectory(prefix="relay-smoke-") as work:
+    with tempfile.TemporaryDirectory(prefix="relay-smoke-") as work, tempfile.TemporaryFile() as log:
         flags = ["--observe-only"] if observe_only else []
         process = subprocess.Popen(
-            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", api, *flags],
-            cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", bind, *flags],
+            cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
         )
         try:
-            for _ in range(100):
-                if process.poll() is not None:
-                    raise RuntimeError(process.stdout.read())
-                try:
-                    with opener.open(base + "/healthz", timeout=1) as response:
-                        health = json.load(response)
-                    break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.05)
-            else:
-                raise RuntimeError("health endpoint did not start")
+            api, port = wait_startup_endpoint(process, log, host, observe_only)
+            base = f"http://{api}"
+            with opener.open(base + "/healthz", timeout=2) as response:
+                health = json.load(response)
             assert health["ready_peers"] == 0 and health["confirmation_tracking"] is False
             try:
                 opener.open(base + "/readyz", timeout=2)
