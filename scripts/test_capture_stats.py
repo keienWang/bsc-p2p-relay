@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import concurrent.futures
 import contextlib
 import io
 import json
@@ -34,6 +35,45 @@ class CaptureStatsTests(unittest.TestCase):
                 capture_stats.save_new_snapshot(target, {"different": True})
             self.assertEqual(target.read_bytes(), original)
             self.assertEqual(list(pathlib.Path(directory).iterdir()), [target])
+
+    def test_competing_publishers_expose_one_complete_winner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            target = root / "stats.json"
+            candidates = [dict(sample(), instance_id=identity * 32) for identity in ("a", "b")]
+            for index, candidate in enumerate(candidates):
+                candidate["http"]["concurrency_rejected_total"] = (1 << 64) - 1 - index
+
+            # Make both writes reach the real atomic publication boundary after
+            # staging; sequential duplicate checks cannot exercise this race.
+            staged = threading.Barrier(3, timeout=5)
+            release = threading.Event()
+            real_link = capture_stats.os.link
+
+            def publish(source, destination):
+                staged.wait()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("publication fixture did not release writers")
+                real_link(source, destination)
+
+            with mock.patch("capture_stats.os.link", side_effect=publish):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
+                    futures = [workers.submit(capture_stats.save_new_snapshot, target, candidate)
+                               for candidate in candidates]
+                    try:
+                        staged.wait()
+                        self.assertFalse(target.exists(), "target appeared before publication")
+                        self.assertCountEqual(
+                            [json.loads(file.read_bytes()) for file in root.iterdir()], candidates)
+                    finally:
+                        release.set()
+                    errors = [future.exception(timeout=5) for future in futures]
+
+            winners = [index for index, error in enumerate(errors) if error is None]
+            self.assertEqual(len(winners), 1, errors)
+            self.assertIsInstance(errors[1 - winners[0]], FileExistsError)
+            self.assertEqual(json.loads(target.read_bytes()), candidates[winners[0]])
+            self.assertEqual(list(root.iterdir()), [target])
 
     def test_publication_failure_cleans_temporary(self):
         with tempfile.TemporaryDirectory() as directory:
