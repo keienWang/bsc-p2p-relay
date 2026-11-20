@@ -134,6 +134,38 @@ class ObservationPipelineTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.work.iterdir()),
                          ["after.json", "before.json", "delta.json"])
 
+    def test_assert_unchanged_distinguishes_valid_change_from_failure(self):
+        original = sample()
+        later = dict(original, observed_at="2026-11-20T00:02:03.987654321Z")
+        self.capture("before.json", original)
+        self.capture("same.json", later)
+        args = ("before.json", "same.json", "--require-unchanged")
+        same = self.run_cli("stats_delta.py", *args)
+        self.assertEqual((same.returncode, same.stderr), (0, ""))
+        self.assertEqual(json.loads(same.stdout)["after_observed_at"], later["observed_at"])
+
+        for group, field in (("submit", "other_total"), ("http", "concurrency_rejected_total")):
+            with self.subTest(group=group):
+                value = copy.deepcopy(later)
+                value[group][field] = (1 << 64) - 1
+                name = group + ".json"
+                self.capture(name, value)
+                changed_args = ("before.json", name, "--require-unchanged")
+                default = self.run_cli("stats_delta.py", *changed_args[:2])
+                changed = self.run_cli("stats_delta.py", *changed_args)
+                self.assertEqual((default.returncode, changed.returncode, changed.stderr), (0, 3, ""))
+                self.assertEqual(changed.stdout, default.stdout)
+                self.assertEqual(json.loads(changed.stdout)[group + "_delta"][field], (1 << 64) - 1)
+                output = group + "-delta.json"
+                saved = self.run_cli("stats_delta.py", *changed_args, "--output", output)
+                self.assertEqual((saved.returncode, saved.stderr), (3, ""))
+                self.assertEqual((self.work / output).read_text(), changed.stdout)
+                duplicate = self.run_cli("stats_delta.py", *changed_args, "--output", output)
+                self.assertEqual((duplicate.returncode, duplicate.stdout), (1, ""))
+                self.assertEqual((self.work / output).read_text(), changed.stdout)
+                reversed_order = self.run_cli("stats_delta.py", name, "before.json", "--require-unchanged")
+                self.assertEqual((reversed_order.returncode, reversed_order.stdout), (1, ""))
+
     def test_duplicate_capture_preserves_baseline_and_cli_fails(self):
         self.capture("before.json", sample())
         original = (self.work / "before.json").read_bytes()

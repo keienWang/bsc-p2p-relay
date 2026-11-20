@@ -48,6 +48,8 @@ def main(argv=None):
     parser.add_argument("before", help="earlier saved JSON response body")
     parser.add_argument("after", help="later saved JSON response body from the same endpoint/instance")
     parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
+    parser.add_argument("--require-unchanged", action="store_true",
+                        help="exit 3 after reporting a valid comparison with nonzero deltas")
     args = parser.parse_args(argv)
     try:
         result = compare_snapshots(read_snapshot(args.before), read_snapshot(args.after))
@@ -60,6 +62,10 @@ def main(argv=None):
         print(json.dumps(result, sort_keys=True, indent=2))
     else:
         print("Saved validated statistics comparison.")
+    if args.require_unchanged and any(
+        count for group in ("submit_delta", "http_delta") for count in result[group].values()
+    ):
+        return 3
     return 0
 
 

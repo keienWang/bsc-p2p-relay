@@ -201,6 +201,22 @@ The destination directory must already exist and support hard links. This is
 atomic visibility, not a promise of directory-entry durability after power loss.
 Without `--output`, the command still emits the JSON comparison to stdout.
 
+### Assert sampled counters did not change
+
+```sh
+python3 scripts/stats_delta.py before.json after.json --require-unchanged
+```
+
+Use this optional check when the expectation is that every tracked counter
+stays unchanged, for example across an isolated observation-only test window.
+Exit `0` means the snapshots compared and all deltas were zero; exit `3` means
+they compared and at least one tracked counter increased. Both produce the
+complete comparison, including with `--output`. Invalid comparisons or output
+publication failures still exit `1`, and argument usage errors exit `2`.
+Without the flag, valid comparisons still exit `0` regardless of deltas.
+Zero sampled deltas do not prove that the relay, peers, or chain were idle;
+only the counters in this schema were checked.
+
 ### Readiness scope and polling cost
 
 `/readyz` reports whether any connected session negotiated transaction receive
