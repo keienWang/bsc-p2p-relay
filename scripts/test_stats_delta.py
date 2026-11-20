@@ -4,6 +4,8 @@ import copy
 import io
 import json
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -94,6 +96,33 @@ class StatsDeltaTests(unittest.TestCase):
                     code, out, err = self.invoke(before, after)
                     self.assertEqual((code, out), (1, ""))
                     self.assertIn("statistics unavailable:", err)
+
+    def test_cli_errors_identify_snapshot_stage_counter_or_output(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            good, bad, later, output = [root / name for name in
+                                        ("good.json", "bad.json", "later.json", "output.json")]
+            before, after = sample(), sample()
+            before["http"]["concurrency_rejected_total"] = (1 << 64) - 1
+            good.write_text(json.dumps(before), encoding="utf-8")
+            later.write_text(json.dumps(after), encoding="utf-8")
+            bad.write_text("{", encoding="utf-8")
+            cases = ((bad, good, "before snapshot:"), (good, bad, "after snapshot:"),
+                     (good, later, "http.concurrency_rejected_total: 18446744073709551615 -> 0"))
+            for first, second, message in cases:
+                with self.subTest(message=message):
+                    result = subprocess.run(command + [str(first), str(second), "--output", str(output)],
+                                            capture_output=True, text=True, timeout=5, check=False)
+                    self.assertEqual((result.returncode, result.stdout), (1, ""))
+                    self.assertIn(message, result.stderr)
+                    self.assertFalse(output.exists())
+            output.write_bytes(b"keep the prior report")
+            result = subprocess.run(command + [str(later), str(good), "--output", str(output)],
+                                    capture_output=True, text=True, timeout=5, check=False)
+            self.assertEqual((result.returncode, result.stdout), (1, ""))
+            self.assertIn("output report:", result.stderr)
+            self.assertEqual(output.read_bytes(), b"keep the prior report")
 
     def test_missing_file_is_unavailable(self):
         with tempfile.TemporaryDirectory() as directory:

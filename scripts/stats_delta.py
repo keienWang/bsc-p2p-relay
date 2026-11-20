@@ -30,7 +30,8 @@ def compare_snapshots(before, after):
         for field, old in before[group].items():
             new = after[group][field]
             if new < old:
-                raise ValueError("counter decreased; wrap, reset or sample ordering invalidates delta")
+                raise ValueError(f"counter decreased ({group}.{field}: {old} -> {new}); "
+                                 "wrap, reset or sample ordering invalidates delta")
             delta[field] = new - old
         groups[group + "_delta"] = delta
     return {
@@ -51,12 +52,18 @@ def main(argv=None):
     parser.add_argument("--require-unchanged", action="store_true",
                         help="exit 3 after reporting a valid comparison with nonzero deltas")
     args = parser.parse_args(argv)
+    stage = "before snapshot"
     try:
-        result = compare_snapshots(read_snapshot(args.before), read_snapshot(args.after))
+        before = read_snapshot(args.before)
+        stage = "after snapshot"
+        after = read_snapshot(args.after)
+        stage = "snapshot comparison"
+        result = compare_snapshots(before, after)
         if args.output is not None:
+            stage = "output report"
             save_new_snapshot(args.output, result)
     except (OSError, ValueError, RecursionError) as error:
-        print("statistics unavailable: " + str(error), file=sys.stderr)
+        print(f"statistics unavailable: {stage}: {error}", file=sys.stderr)
         return 1
     if args.output is None:
         print(json.dumps(result, sort_keys=True, indent=2))

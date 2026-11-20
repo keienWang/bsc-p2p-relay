@@ -200,6 +200,10 @@ output) is preserved, failures exit nonzero, and temporary files are cleaned up.
 The destination directory must already exist and support hard links. This is
 atomic visibility, not a promise of directory-entry durability after power loss.
 Without `--output`, the command still emits the JSON comparison to stdout.
+Failure messages identify the affected stage: before snapshot, after snapshot,
+comparison, or output report. A decreasing counter reports its field and exact
+before/after values so an operator can check the baseline without interpreting
+a reset or reversed ordering as a valid delta.
 
 ### Assert sampled counters did not change
 
