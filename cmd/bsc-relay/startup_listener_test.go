@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -48,6 +49,9 @@ func TestRunRelayAPIBindFailureDoesNotAnnounceStartup(t *testing.T) {
 	if !errors.As(err, &networkError) || networkError.Op != "listen" || networkError.Addr == nil || networkError.Addr.String() != api.Addr().String() {
 		t.Fatalf("want API listen failure, got %v", err)
 	}
+	if !errors.Is(err, syscall.EADDRINUSE) || !strings.HasPrefix(err.Error(), "bind HTTP API: ") {
+		t.Fatalf("want actionable HTTP bind error with preserved cause, got %v", err)
+	}
 	if strings.Contains(logs.String(), "experimental relay started") {
 		t.Fatalf("announced startup after API bind failure: %s", logs.String())
 	}
@@ -60,6 +64,27 @@ func TestRunRelayAPIBindFailureDoesNotAnnounceStartup(t *testing.T) {
 	}
 	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunRelayIdentifiesP2PBindFailure(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	cfg := relay.DefaultConfig()
+	cfg.NoDiscovery = true
+	cfg.ListenAddr = listener.Addr().String()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = runRelay(ctx, func() { t.Error("unexpected cancellation callback") }, cfg, "127.0.0.1:0", true)
+	var networkError *net.OpError
+	if !errors.Is(err, syscall.EADDRINUSE) || !errors.As(err, &networkError) || networkError.Op != "listen" || networkError.Addr == nil || networkError.Addr.String() != cfg.ListenAddr {
+		t.Fatalf("want underlying occupied P2P listen error, got %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "start P2P node: ") {
+		t.Fatalf("want actionable P2P startup error, got %v", err)
 	}
 }
 

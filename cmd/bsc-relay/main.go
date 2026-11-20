@@ -47,7 +47,7 @@ func run() error {
 	}
 	cfg.Peers = peers
 	if err := relay.LoopbackAddress(*api); err != nil {
-		return err
+		return fmt.Errorf("validate HTTP API address: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -60,14 +60,14 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	}
 	node, err := relay.New(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("configure relay: %w", err)
 	}
 	defer node.Close()
 	if ctx.Err() != nil {
 		return nil
 	}
 	if err = node.Start(); err != nil {
-		return err
+		return fmt.Errorf("start P2P node: %w", err)
 	}
 	if ctx.Err() != nil {
 		return nil
@@ -83,7 +83,7 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	// failed to open. Serve owns the listener; defer also covers early returns.
 	listener, err := net.Listen("tcp", api)
 	if err != nil {
-		return err
+		return fmt.Errorf("bind HTTP API: %w", err)
 	}
 	defer listener.Close()
 	errs := make(chan error, 1)
@@ -92,7 +92,7 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return err
+			return fmt.Errorf("serve HTTP API: %w", err)
 		}
 	case <-ctx.Done():
 		// A second signal may terminate the process if graceful shutdown stalls.
@@ -100,7 +100,10 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return shutdownHTTP(shutdown, srv)
+	if err := shutdownHTTP(shutdown, srv); err != nil {
+		return fmt.Errorf("shut down HTTP API: %w", err)
+	}
+	return nil
 }
 
 // Shutdown stops listeners immediately but leaves active connections open when
