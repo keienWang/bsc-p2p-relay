@@ -283,6 +283,37 @@ between `/readyz` and submit. An already cached transaction can receive 503 or
    retry policy terminate. Report unavailable transport. Do not add external RPC,
    expose HTTP, disable validation or promise delayed automatic delivery.
 
+### Identify an HTTP API port conflict on Linux
+
+If startup reports `address already in use` for the HTTP API, take the fixed
+port from `--api` (default `8787`). Run this read-only check in the **same network
+namespace as the failing relay**. Replace `8787` with the configured port:
+
+```sh
+ss -H -ltnp 'sport = :8787'
+```
+
+This selects TCP **listening** sockets by exact local port, not outbound
+connections or ports that merely contain those digits. Read the local address
+column as well: a wildcard listener can matter even when the relay binds to
+`127.0.0.1` or `::1`. If present, `users:(...)` reports process metadata;
+a listener without that field is still a listener, but `ss` could not show its
+owner (for example, due to permissions). Do not assume it belongs to the relay.
+
+No rows means no matching TCP listener was visible in that namespace **at the
+time of the check**. Compare the exact address/port in the startup error, check
+that you are inspecting the correct namespace and host, and account for a
+process that may have exited. For an existing Docker setup, an authorized
+operator can use `docker ps --format 'table {{.Names}}\t{{.Ports}}'` on the
+relevant Docker host to check host port mappings; a published host port is not
+the same as a listener inside a container. This does not recommend publishing
+or exposing the relay HTTP API.
+
+`--api 127.0.0.1:0` requests a kernel-selected port, not a listener on port 0.
+For a successful ephemeral start, inspect the actual API address in the startup
+log; do not query `sport = :0`. These steps are diagnostic only: do not stop,
+restart, or reconfigure an unidentified listener.
+
 ## Observation and capacity
 
 `GET /healthz` returns 200 if its guarded handler completes; it is not a general
