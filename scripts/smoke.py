@@ -168,6 +168,7 @@ STARTUP_API = re.compile(
     rb"experimental relay started; no chain/state verification or confirmations "
     rb'network=mainnet api=([^ \r\n]+) observe_only=(true|false) ')
 MAX_STARTUP_LOG_BYTES = 32 * 1024
+STARTUP_TIMEOUT_SECONDS = 5
 
 
 def startup_endpoint(log, host, observe_only):
@@ -189,7 +190,7 @@ def startup_endpoint(log, host, observe_only):
 
 
 def wait_startup_endpoint(process, log, host, observe_only):
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
     while True:
         output = os.pread(log.fileno(), MAX_STARTUP_LOG_BYTES + 1, 0)
         if len(output) > MAX_STARTUP_LOG_BYTES:

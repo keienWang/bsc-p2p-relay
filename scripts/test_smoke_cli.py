@@ -2,7 +2,10 @@
 import contextlib
 import errno
 import io
+import os
+import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -106,6 +109,42 @@ class StartupEndpointSmokeTest(unittest.TestCase):
             log.flush()
             with self.assertRaisesRegex(RuntimeError, "log budget"):
                 wait_startup_endpoint(process, log, "127.0.0.1", True)
+
+
+class StartupCleanupSmokeTest(unittest.TestCase):
+    def test_startup_timeout_kills_and_reaps_real_child_without_http(self):
+        real_popen = subprocess.Popen
+        children = []
+
+        def fallback_cleanup(child):
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+
+        def launch_fixture(command, **kwargs):
+            self.assertEqual(command, ["/fixture/bsc-relay", "--no-discovery", "--p2p",
+                                       "127.0.0.1:0", "--api", "127.0.0.1:0", "--observe-only"])
+            # No sockets or descendants: this test-only process never produces a
+            # startup record and cannot exit by itself during the observation.
+            child = real_popen([sys.executable, "-c", "import signal; signal.pause()"], **kwargs)
+            children.append(child)
+            self.addCleanup(fallback_cleanup, child)
+            return child
+
+        with mock.patch("smoke.STARTUP_TIMEOUT_SECONDS", 0.05), \
+                mock.patch("smoke.subprocess.Popen", side_effect=launch_fixture), \
+                mock.patch("smoke.urllib.request.build_opener") as build_opener:
+            with self.assertRaisesRegex(RuntimeError, "did not report a bound API"):
+                check_observation("/fixture/bsc-relay", observe_only=True)
+            build_opener.return_value.open.assert_not_called()
+
+        self.assertEqual(len(children), 1)
+        child = children[0]
+        # Inspect the cached return code before polling, which could itself reap
+        # the process and mask a missing wait() in the smoke cleanup.
+        self.assertEqual(child.returncode, -signal.SIGKILL)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(child.pid, os.WNOHANG)
 
 
 if __name__ == "__main__":
