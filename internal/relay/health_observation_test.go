@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/p2p/enode"
 )
 
 // Readiness means negotiated receiveTx capability, not cache/queue admission.
@@ -22,7 +24,6 @@ func TestHealthReadinessCapabilityAndCapacity(t *testing.T) {
 	}
 	for _, p := range n.peers {
 		p.queue <- outbound{}
-		p.receiveTx = false
 	}
 	before := n.Stats()
 	for _, observationOnly := range []bool{false, true} {
@@ -31,9 +32,13 @@ func TestHealthReadinessCapabilityAndCapacity(t *testing.T) {
 			handler = n.ObservationHandler()
 		}
 		for _, ready := range []bool{false, true, false} {
-			for _, p := range n.peers {
-				p.receiveTx = ready
-			}
+			n.mu.Lock()
+			id := enode.ID{1}
+			p := n.peers[id]
+			n.removePeerLocked(id, p)
+			p.receiveTx = ready
+			n.setPeerLocked(id, p)
+			n.mu.Unlock()
 			for _, path := range []string{"/healthz", "/readyz"} {
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
@@ -62,6 +67,42 @@ func TestHealthReadinessCapabilityAndCapacity(t *testing.T) {
 	for _, p := range n.peers {
 		if len(p.queue) != 1 {
 			t.Fatal("readiness polling drained queue")
+		}
+	}
+}
+
+func TestHealthTracksExactPeerSessionThroughReplacement(t *testing.T) {
+	n := loadNode(t, 1, 0, 1)
+	id, otherID := enode.ID{1}, enode.ID{2}
+	first, replacement := &peerSession{receiveTx: true}, &peerSession{receiveTx: true}
+	nonreceiving := &peerSession{}
+	for _, step := range []struct {
+		name             string
+		id               enode.ID
+		session          *peerSession
+		remove           bool
+		ready, connected int
+	}{
+		{"registered nonreceiving", otherID, nonreceiving, false, 0, 1},
+		{"registered receiving", id, first, false, 1, 2},
+		{"same id replacement", id, replacement, false, 1, 2},
+		{"late old cleanup", id, first, true, 1, 2},
+		{"removed nonreceiving", otherID, nonreceiving, true, 1, 1},
+		{"replaced by nonreceiving", id, nonreceiving, false, 0, 1},
+		{"late receiving cleanup", id, replacement, true, 0, 1},
+		{"removed replacement", id, nonreceiving, true, 0, 0},
+		{"repeated cleanup", id, nonreceiving, true, 0, 0},
+	} {
+		n.mu.Lock()
+		if step.remove {
+			n.removePeerLocked(step.id, step.session)
+		} else {
+			n.setPeerLocked(step.id, step.session)
+		}
+		n.mu.Unlock()
+		got := n.Health()
+		if got.ReadyPeers != step.ready || got.ConnectedPeers != step.connected {
+			t.Fatalf("%s: got %d/%d ready/connected; want %d/%d", step.name, got.ReadyPeers, got.ConnectedPeers, step.ready, step.connected)
 		}
 	}
 }

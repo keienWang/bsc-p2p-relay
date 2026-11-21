@@ -44,10 +44,10 @@ func TestReadinessKeepAliveAcrossSessionTransitions(t *testing.T) {
 				{"receiving", true, true}, {"removed", false, false}, {"reconnected", true, true},
 			} {
 				n.mu.Lock()
-				delete(n.peers, id)
+				n.removePeerLocked(id, session)
 				session.receiveTx = phase.receive
 				if phase.connected {
-					n.peers[id] = session
+					n.setPeerLocked(id, session)
 				}
 				n.mu.Unlock()
 				for _, path := range []string{"/readyz", "/healthz"} {

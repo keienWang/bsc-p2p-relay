@@ -57,7 +57,7 @@ func bareNode(t *testing.T) *Node {
 }
 func addFakePeer(n *Node, receive bool, capacity int) *peerSession {
 	p := &peerSession{receiveTx: receive, queue: make(chan outbound, capacity), done: make(chan struct{})}
-	n.peers[enode.ID{1}] = p
+	n.setPeerLocked(enode.ID{1}, p)
 	return p
 }
 

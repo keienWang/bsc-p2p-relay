@@ -59,7 +59,7 @@ type peerSession struct {
 	rw            p2p.MsgReadWriter
 	queue         chan outbound
 	done          chan struct{}
-	receiveTx     bool
+	receiveTx     bool                      // Set by handshake before registration, immutable while registered.
 	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
@@ -71,6 +71,7 @@ type Node struct {
 	server          *p2p.Server
 	mu              sync.RWMutex
 	peers           map[enode.ID]*peerSession
+	readyPeers      int // Protected with peers by mu; update via the session helpers.
 	stop            chan struct{}
 	lifecycleMu     sync.Mutex // Serializes Start, Close, and their terminal state.
 	started         bool
@@ -206,14 +207,34 @@ func (n *Node) closeLocked() {
 	}
 }
 func (n *Node) Enode() string { return n.server.Self().URLv4() }
+
+// setPeerLocked registers a handshaken session. It also tolerates replacement
+// of the same ID without counting both sessions. The caller must hold n.mu.
+func (n *Node) setPeerLocked(id enode.ID, session *peerSession) {
+	if old := n.peers[id]; old != nil && old.receiveTx {
+		n.readyPeers--
+	}
+	n.peers[id] = session
+	if session.receiveTx {
+		n.readyPeers++
+	}
+}
+
+// removePeerLocked removes only the exact session that is leaving. A late
+// cleanup must not remove or decrement its replacement. The caller holds n.mu.
+func (n *Node) removePeerLocked(id enode.ID, session *peerSession) {
+	if current := n.peers[id]; current == nil || current != session {
+		return
+	}
+	delete(n.peers, id)
+	if session.receiveTx {
+		n.readyPeers--
+	}
+}
+
 func (n *Node) Health() Health {
 	n.mu.RLock()
-	ready, connected := 0, len(n.peers)
-	for _, p := range n.peers {
-		if p.receiveTx {
-			ready++
-		}
-	}
+	ready, connected := n.readyPeers, len(n.peers)
 	n.mu.RUnlock()
 	count, bytes := n.cache.stats()
 	return Health{n.cfg.Network, n.chain.chainIDText, ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}
@@ -391,9 +412,14 @@ func (n *Node) runPeer(peer *p2p.Peer, rw p2p.MsgReadWriter) error {
 		return err
 	}
 	n.mu.Lock()
-	n.peers[peer.ID()] = p
+	n.setPeerLocked(peer.ID(), p)
 	n.mu.Unlock()
-	defer func() { close(p.done); n.mu.Lock(); delete(n.peers, peer.ID()); n.mu.Unlock() }()
+	defer func() {
+		close(p.done)
+		n.mu.Lock()
+		n.removePeerLocked(peer.ID(), p)
+		n.mu.Unlock()
+	}()
 	go n.writer(p)
 	for {
 		msg, err := rw.ReadMsg()

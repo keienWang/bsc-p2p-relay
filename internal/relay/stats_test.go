@@ -308,7 +308,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	tx := fixtureTx(t, 56, 0, false)
 	raw := rawFixture(t, tx)
 	p := addFakePeer(n, true, 1)
-	n.peers[enode.ID{2}] = &peerSession{receiveTx: true, queue: make(chan outbound), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, &peerSession{receiveTx: true, queue: make(chan outbound), done: make(chan struct{})})
 	got, err := n.Submit(raw)
 	if err != nil || got.Duplicate || got.QueuedPeers != 1 {
 		t.Fatal(got, err)
@@ -320,7 +320,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	if n.cache.expiry(tx.Hash()) != deadline {
 		t.Fatal("cached rejection changed retention")
 	}
-	n.peers[enode.ID{2}] = &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})})
 	got, err = n.Submit(raw)
 	if err != nil || !got.Duplicate || got.QueuedPeers != 1 {
 		t.Fatal(got, err)
