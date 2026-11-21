@@ -6,6 +6,13 @@ import json
 import sys
 
 from capture_stats import read_snapshot, require_same_instance, save_new_snapshot
+from smoke import STATS_HTTP_FIELDS, STATS_SUBMIT_FIELDS
+
+SELECTABLE_COUNTERS = tuple(sorted(
+    f"{group}.{field}"
+    for group, fields in (("submit", STATS_SUBMIT_FIELDS), ("http", STATS_HTTP_FIELDS))
+    for field in fields
+))
 
 
 def compare_snapshots(before, after):
@@ -36,8 +43,11 @@ def main(argv=None):
     parser.add_argument("before", help="earlier saved JSON response body")
     parser.add_argument("after", help="later saved JSON response body from the same endpoint/instance")
     parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
-    parser.add_argument("--require-unchanged", action="store_true",
-                        help="exit 3 after reporting a valid comparison with nonzero deltas")
+    guard = parser.add_mutually_exclusive_group()
+    guard.add_argument("--require-unchanged", action="store_true",
+                       help="exit 3 after reporting a valid comparison with any nonzero delta")
+    guard.add_argument("--require-unchanged-counter", action="append", choices=SELECTABLE_COUNTERS,
+                       metavar="GROUP.COUNTER", help="exit 3 if a selected counter increased; repeatable")
     args = parser.parse_args(argv)
     stage = "before snapshot"
     try:
@@ -60,6 +70,10 @@ def main(argv=None):
         count for group in ("submit_delta", "http_delta") for count in result[group].values()
     ):
         return 3
+    for selector in args.require_unchanged_counter or ():
+        group, field = selector.split(".")
+        if result[group + "_delta"][field]:
+            return 3
     return 0
 
 

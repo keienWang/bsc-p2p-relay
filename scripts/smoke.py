@@ -22,6 +22,7 @@ STATS_SUBMIT_FIELDS = {
     "rejected_validation_total", "rejected_no_peers_total", "rejected_cache_full_total",
     "rejected_queue_unavailable_total", "rejected_admission_expired_total", "other_total",
 }
+STATS_HTTP_FIELDS = {"concurrency_rejected_total"}
 STATS_METADATA_FIELDS = {"schema_version", "instance_id", "created_at", "observed_at", "submit", "http"}
 
 
@@ -52,7 +53,7 @@ def decode_stats(payload):
         if parsed == datetime.datetime.min.replace(tzinfo=datetime.timezone.utc):
             raise ValueError("uninitialized statistics timestamp")
     # Wall time can go backward; do not require observed_at >= created_at.
-    for group, fields in (("submit", STATS_SUBMIT_FIELDS), ("http", {"concurrency_rejected_total"})):
+    for group, fields in (("submit", STATS_SUBMIT_FIELDS), ("http", STATS_HTTP_FIELDS)):
         counters = value[group]
         if type(counters) is not dict or set(counters) != fields:
             raise ValueError("unexpected statistics counter fields")

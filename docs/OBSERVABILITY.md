@@ -245,7 +245,20 @@ Exit `0` means the snapshots compared and all deltas were zero; exit `3` means
 they compared and at least one tracked counter increased. Both produce the
 complete comparison, including with `--output`. Invalid comparisons or output
 publication failures still exit `1`, and argument usage errors exit `2`.
-Without the flag, valid comparisons still exit `0` regardless of deltas.
+Use the repeatable `--require-unchanged-counter GROUP.COUNTER` instead to
+guard selected counters, without failing merely because other counters grew:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json \
+  --require-unchanged-counter http.concurrency_rejected_total \
+  --require-unchanged-counter submit.rejected_queue_unavailable_total
+```
+
+Use the group and field names from the input snapshot, not from the delta
+report. This only narrows the exit-`3` check: all counters are validated,
+a decrease in any counter still invalidates the comparison, and the complete
+report is unchanged. The two assertion options cannot be combined. With
+neither option, valid comparisons exit `0` regardless of counter growth.
 Zero sampled deltas do not prove that the relay, peers, or chain were idle;
 only the counters in this schema were checked.
 

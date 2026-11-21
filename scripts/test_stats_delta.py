@@ -157,6 +157,47 @@ class StatsDeltaTests(unittest.TestCase):
             self.assertEqual((code, out.getvalue()), (1, ""))
             self.assertIn("statistics unavailable:", err.getvalue())
 
+    def test_cli_can_require_only_selected_counters_to_stay_unchanged(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            after["submit"]["accepted_new_cache_lifetime_total"] = (1 << 64) - 1
+            (root / "before.json").write_text(json.dumps(before), encoding="utf-8")
+            (root / "after.json").write_text(json.dumps(after), encoding="utf-8")
+
+            def run(*args, first="before.json", second="after.json"):
+                return subprocess.run(command + [first, second, *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            selector = "--require-unchanged-counter"
+            http, unchanged = "http.concurrency_rejected_total", "submit.other_total"
+            changed = "submit.accepted_new_cache_lifetime_total"
+            ordinary = run()
+            stable = run(selector, http, selector, unchanged)
+            increased = run(selector, http, selector, changed)
+            self.assertEqual((stable.returncode, increased.returncode), (0, 3))
+            self.assertEqual((stable.stderr, increased.stderr), ("", ""))
+            self.assertEqual((stable.stdout, increased.stdout), (ordinary.stdout, ordinary.stdout))
+            self.assertEqual(json.loads(stable.stdout)["submit_delta"][changed.split(".")[1]], (1 << 64) - 1)
+
+            saved = run(selector, changed, "--output", "delta.json")
+            self.assertEqual((saved.returncode, saved.stderr), (3, ""))
+            self.assertEqual((root / "delta.json").read_text(), ordinary.stdout)
+            collision = run(selector, changed, "--output", "delta.json")
+            self.assertEqual((collision.returncode, collision.stdout), (1, ""))
+            self.assertEqual((root / "delta.json").read_text(), ordinary.stdout)
+
+            # Even a non-selected counter decrease invalidates the comparison.
+            reversed_order = run(selector, http, first="after.json", second="before.json")
+            self.assertEqual((reversed_order.returncode, reversed_order.stdout), (1, ""))
+            self.assertIn("counter decreased", reversed_order.stderr)
+            for invalid in ((selector, "http.typo"), (selector, http, "--require-unchanged")):
+                with self.subTest(args=invalid):
+                    bad_args = run(*invalid, first="missing.json")
+                    self.assertEqual((bad_args.returncode, bad_args.stdout), (2, ""))
+                    self.assertNotIn("before snapshot:", bad_args.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
