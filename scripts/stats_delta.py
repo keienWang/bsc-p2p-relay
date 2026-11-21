@@ -3,27 +3,14 @@
 """Compare two saved v1 statistics bodies offline; never fetch or submit data."""
 import argparse
 import json
-import pathlib
 import sys
 
-from smoke import MAX_STATS_RESPONSE_BYTES, decode_stats
-from capture_stats import save_new_snapshot
-
-
-def read_snapshot(path):
-    with pathlib.Path(path).open("rb") as source:
-        payload = source.read(MAX_STATS_RESPONSE_BYTES + 1)
-    if len(payload) > MAX_STATS_RESPONSE_BYTES:
-        raise ValueError("snapshot exceeds response bound")
-    return decode_stats(payload)
+from capture_stats import read_snapshot, require_same_instance, save_new_snapshot
 
 
 def compare_snapshots(before, after):
     """Inputs must have passed decode_stats. Deltas are not rates or an identity."""
-    if before["instance_id"] != after["instance_id"]:
-        raise ValueError("instance changed; start a new comparison baseline")
-    if before["created_at"] != after["created_at"]:
-        raise ValueError("instance creation metadata changed")
+    require_same_instance(before, after)
     groups = {}
     for group in ("submit", "http"):
         delta = {}

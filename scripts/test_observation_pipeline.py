@@ -166,6 +166,39 @@ class ObservationPipelineTests(unittest.TestCase):
                 reversed_order = self.run_cli("stats_delta.py", name, "before.json", "--require-unchanged")
                 self.assertEqual((reversed_order.returncode, reversed_order.stdout), (1, ""))
 
+    def test_capture_can_require_the_baseline_instance(self):
+        baseline = sample()
+        self.capture("baseline.json", baseline)
+        original = (self.work / "baseline.json").read_bytes()
+        command = ("capture_stats.py", self.address, "after.json", "--same-instance-as")
+        # An invalid baseline must fail before consuming the server's only
+        # response. The next capture must still get that exact observation.
+        (self.work / "invalid.json").write_bytes(b"{}")
+        after = copy.deepcopy(baseline)
+        after["observed_at"] = "2026-11-20T00:02:03.987654321Z"
+        after["http"]["concurrency_rejected_total"] = (1 << 64) - 1
+        self.responses.put(json.dumps(after).encode())
+        invalid = self.run_cli(*command, "invalid.json")
+        self.assertEqual((invalid.returncode, invalid.stdout), (1, ""))
+        self.assertIn("baseline snapshot:", invalid.stderr)
+        self.assertFalse((self.work / "after.json").exists())
+        valid = self.run_cli(*command, "baseline.json")
+        self.assertEqual((valid.returncode, valid.stderr), (0, ""), valid.stdout)
+        self.assertEqual(json.loads((self.work / "after.json").read_bytes()), after)
+        for name, value, error in (
+            ("restart.json", dict(after, instance_id="b" * 32), "instance changed"),
+            ("metadata.json", dict(after, created_at="2026-11-19T00:00:09Z"), "creation metadata changed"),
+        ):
+            with self.subTest(name=name):
+                self.responses.put(json.dumps(value).encode())
+                rejected = self.run_cli("capture_stats.py", self.address, name,
+                                        "--same-instance-as", "baseline.json")
+                self.assertEqual((rejected.returncode, rejected.stdout), (1, ""))
+                self.assertIn(error, rejected.stderr)
+                self.assertFalse((self.work / name).exists())
+        self.assertEqual((self.work / "baseline.json").read_bytes(), original)
+        self.assertFalse(list(self.work.glob(".relay-stats-*")))
+
     def test_duplicate_capture_preserves_baseline_and_cli_fails(self):
         self.capture("before.json", sample())
         original = (self.work / "before.json").read_bytes()

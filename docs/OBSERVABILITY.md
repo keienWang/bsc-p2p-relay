@@ -176,6 +176,19 @@ and no success message. Invalid HTTP/JSON observations never produce a baseline
 file. Keep checking exit statuses and keep collections sequential; this wrapper
 does not change the counter/delta interpretation or authorize public exposure.
 
+To append a capture to an existing instance's observation window, use:
+
+```sh
+python3 scripts/capture_stats.py 127.0.0.1:8787 after.json --same-instance-as before.json
+```
+
+The collector validates the saved baseline before fetching. It writes a new
+snapshot only if both `instance_id` and `created_at` match. After a restart,
+start a new baseline instead of treating a new process as a continuation.
+This is a local correlation check, not authentication or a counter-delta check;
+use `stats_delta.py` to compare validated snapshots. Ordinary capture without
+the option is unchanged.
+
 ### Collector/comparator command-line regression
 
 `python3 -m unittest discover -s scripts -p 'test_observation_pipeline.py'`
