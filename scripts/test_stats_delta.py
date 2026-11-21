@@ -3,6 +3,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -123,6 +124,30 @@ class StatsDeltaTests(unittest.TestCase):
             self.assertEqual((result.returncode, result.stdout), (1, ""))
             self.assertIn("output report:", result.stderr)
             self.assertEqual(output.read_bytes(), b"keep the prior report")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO fixture required")
+    def test_saved_input_rejects_nonregular_paths_without_waiting_for_bytes(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            saved = root / "saved.json"
+            saved.write_text(json.dumps(sample()), encoding="utf-8")
+            pipe = root / "not-a-snapshot"
+            os.mkfifo(pipe)
+            output = root / "output.json"
+            for path in (root, pipe):
+                with self.subTest(path=path):
+                    result = subprocess.run(command + [str(saved), str(path), "--output", str(output)],
+                                            capture_output=True, text=True, timeout=5, check=False)
+                    self.assertEqual((result.returncode, result.stdout), (1, ""))
+                    self.assertIn("after snapshot: snapshot input must be a regular file", result.stderr)
+                    self.assertFalse(output.exists())
+            link = root / "linked.json"
+            link.symlink_to(saved.name)
+            result = subprocess.run(command + [str(saved), str(link)],
+                                    capture_output=True, text=True, timeout=5, check=False)
+            self.assertEqual((result.returncode, result.stderr), (0, ""))
+            self.assertEqual(json.loads(result.stdout)["instance_id"], sample()["instance_id"])
 
     def test_missing_file_is_unavailable(self):
         with tempfile.TemporaryDirectory() as directory:

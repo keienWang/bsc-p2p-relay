@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import signal
+import stat
 import sys
 import tempfile
 import urllib.error
@@ -37,7 +38,19 @@ def loopback_base(address):
 
 def read_snapshot(path):
     """Read the same bounded v1 snapshot format for capture and comparison."""
-    with pathlib.Path(path).open("rb") as source:
+    path = pathlib.Path(path)
+    error = "snapshot input must be a regular file"
+    # Refuse special paths before opening them. On POSIX, also avoid blocking
+    # on a pipe if the directory entry changes between stat and open.
+    if not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError(error)
+
+    def open_saved_file(filename, flags):
+        return os.open(filename, flags | getattr(os, "O_NONBLOCK", 0))
+
+    with open(path, "rb", opener=open_saved_file) as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise ValueError(error)
         payload = source.read(MAX_STATS_RESPONSE_BYTES + 1)
     if len(payload) > MAX_STATS_RESPONSE_BYTES:
         raise ValueError("snapshot exceeds response bound")

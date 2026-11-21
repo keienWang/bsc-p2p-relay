@@ -210,6 +210,41 @@ class CaptureStatsTests(unittest.TestCase):
                 server.shutdown()
                 thread.join(timeout=5)
 
+    @unittest.skipUnless(hasattr(capture_stats.os, "mkfifo"), "POSIX FIFO fixture required")
+    def test_nonregular_baseline_rejected_before_fetch_or_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            baseline, target = root / "pipe", root / "output.json"
+            capture_stats.os.mkfifo(baseline)
+            with mock.patch("capture_stats.urllib.request.build_opener") as build:
+                with self.assertRaisesRegex(ValueError, "baseline snapshot:.*regular file"):
+                    capture_stats.capture("127.0.0.1:8787", target, same_instance_as=baseline)
+                build.assert_not_called()
+            self.assertFalse(target.exists())
+
+    def test_saved_input_checks_the_opened_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "saved.json"
+            path.write_text(json.dumps(sample()), encoding="utf-8")
+            read_fd, write_fd = capture_stats.os.pipe()
+            try:
+                # Simulate an input replaced between path inspection and open.
+                with mock.patch("capture_stats.os.open", return_value=read_fd) as opened:
+                    with self.assertRaisesRegex(ValueError, "regular file"):
+                        capture_stats.read_snapshot(path)
+                    if hasattr(capture_stats.os, "O_NONBLOCK"):
+                        self.assertTrue(opened.call_args.args[1] & capture_stats.os.O_NONBLOCK)
+                with self.assertRaises(OSError):
+                    capture_stats.os.fstat(read_fd)
+                read_fd = None
+            finally:
+                capture_stats.os.close(write_fd)
+                if read_fd is not None:
+                    try:
+                        capture_stats.os.close(read_fd)
+                    except OSError:
+                        pass
+
     def test_failure_has_no_success_stdout_or_file(self):
         with tempfile.TemporaryDirectory() as directory:
             target = pathlib.Path(directory) / "stats.json"

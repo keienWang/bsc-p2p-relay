@@ -189,7 +189,10 @@ To append a capture to an existing instance's observation window, use:
 python3 scripts/capture_stats.py 127.0.0.1:8787 after.json --same-instance-as before.json
 ```
 
-The collector validates the saved baseline before fetching. It writes a new
+The collector validates the saved baseline before fetching. Baselines and
+comparison inputs must be regular files (symlinks to regular files are allowed),
+not pipes or devices. This is a file-type check, not a filesystem I/O deadline.
+The collector writes a new
 snapshot only if both `instance_id` and `created_at` match. After a restart,
 start a new baseline instead of treating a new process as a continuation.
 This is a local correlation check, not authentication or a counter-delta check;
