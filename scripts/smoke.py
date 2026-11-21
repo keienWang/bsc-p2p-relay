@@ -147,6 +147,35 @@ def check_readiness_cli(api, work, health):
         raise AssertionError("readiness probe did not report the relay's no-peer health snapshot")
 
 
+def run_stats_cli(script, work, expected_exit, *args):
+    tool = pathlib.Path(__file__).resolve().with_name(script)
+    result = subprocess.run([sys.executable, str(tool), *args], cwd=work,
+                            stdin=subprocess.DEVNULL, capture_output=True,
+                            text=True, timeout=5, check=False)
+    if result.returncode != expected_exit or result.stderr:
+        raise AssertionError(f"{script} expected exit {expected_exit}; "
+                             f"got {result.returncode}, stderr={result.stderr.strip()!r}")
+    return result.stdout
+
+
+def capture_stats_cli(api, work, filename, *args):
+    run_stats_cli("capture_stats.py", work, 0, api, filename, *args)
+    return decode_stats((pathlib.Path(work) / filename).read_bytes())
+
+
+def check_delta_cli(work, before, after, validations):
+    stdout = run_stats_cli("stats_delta.py", work, 3 if validations else 0,
+                           "before.json", "after.json", "--require-unchanged")
+    expected_submit = dict.fromkeys(STATS_SUBMIT_FIELDS, 0)
+    expected_submit["rejected_validation_total"] = validations
+    expected = dict(source_schema_version=1, instance_id=before["instance_id"],
+                    created_at=before["created_at"], before_observed_at=before["observed_at"],
+                    after_observed_at=after["observed_at"], submit_delta=expected_submit,
+                    http_delta={"concurrency_rejected_total": 0})
+    if json.loads(stdout, object_pairs_hook=unique_object) != expected:
+        raise AssertionError("offline statistics delta disagrees with the relay smoke outcomes")
+
+
 def main(binary):
     binary = str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
@@ -231,7 +260,9 @@ def check_observation(binary, observe_only, ipv6=False):
     host = "::1" if ipv6 else "127.0.0.1"
     bind = "[::1]:0" if ipv6 else "127.0.0.1:0"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with tempfile.TemporaryDirectory(prefix="relay-smoke-") as work, tempfile.TemporaryFile() as log:
+    with (tempfile.TemporaryDirectory(prefix="relay-smoke-") as work,
+          tempfile.TemporaryDirectory(prefix="relay-smoke-snapshots-") as snapshots,
+          tempfile.TemporaryFile() as log):
         flags = ["--observe-only"] if observe_only else []
         process = subprocess.Popen(
             [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", bind, *flags],
@@ -244,7 +275,7 @@ def check_observation(binary, observe_only, ipv6=False):
                 health = json.load(response)
             assert health["ready_peers"] == 0 and health["confirmation_tracking"] is False
             check_readiness_cli(api, work, health)
-            initial_stats = read_stats(opener, base)
+            initial_stats = capture_stats_cli(api, snapshots, "before.json")
             assert_stats_counts(initial_stats, 0)
             repeated_stats = read_stats(opener, base)
             assert_stats_counts(repeated_stats, 0)
@@ -261,10 +292,12 @@ def check_observation(binary, observe_only, ipv6=False):
                     assert "submission is disabled" in json.load(error)["error"]
             if observe_only:
                 check_observation_rejects_before_body(host, api, port)
-            after_rejection = read_stats(opener, base)
-            assert_stats_counts(after_rejection, 0 if observe_only else 1)
+            after_rejection = capture_stats_cli(api, snapshots, "after.json", "--same-instance-as", "before.json")
+            validations = 0 if observe_only else 1
+            assert_stats_counts(after_rejection, validations)
             assert after_rejection["instance_id"] == initial_stats["instance_id"]
             assert after_rejection["created_at"] == initial_stats["created_at"]
+            check_delta_cli(snapshots, initial_stats, after_rejection, validations)
             process.send_signal(signal.SIGTERM)
             assert process.wait(timeout=10) == 0
             assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"

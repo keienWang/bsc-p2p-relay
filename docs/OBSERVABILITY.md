@@ -209,6 +209,11 @@ restart/reset comparisons, and preservation of an existing baseline on a failed
 repeat capture. It runs in the ordinary Python test suite. This fixture validates
 the operator-tool pipeline, not live peer readiness, throughput, or delivery.
 
+The delivery-binary smoke also runs the actual capture and comparison CLIs
+against an isolated Relay. It checks same-instance files, exact deltas and the
+`--require-unchanged` exit codes in both handler modes. Smoke snapshots stay
+in a separate temporary directory, not the relay's working directory.
+
 To keep a comparison as an artifact without shell redirection truncating an
 existing report, use:
 
