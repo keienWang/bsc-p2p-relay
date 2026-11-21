@@ -80,6 +80,29 @@ class ProbeReadinessTest(unittest.TestCase):
                             self.assertEqual(result.stderr, "")
                             self.assertEqual(json.loads(result.stdout), expected)
                 self.assertEqual(paths, ["/readyz"] * len(cases))
+                paths.clear()
+                testnet_ready = dict(ready, network="testnet", chain_id="97")
+                for status, payload, network, exit_code in (
+                    (200, testnet_ready, "testnet", 0),
+                    (200, testnet_ready, "mainnet", 1),
+                    (503, zero, "mainnet", 3),
+                    (503, zero, "testnet", 1),
+                ):
+                    with self.subTest(expected_network=network, actual_network=payload["network"], status=status):
+                        responses.put((status, json.dumps(payload).encode()))
+                        result = subprocess.run(command + ["--expect-network", network],
+                                                capture_output=True, text=True, timeout=5)
+                        self.assertEqual(result.returncode, exit_code, result.stderr)
+                        if exit_code == 1:
+                            self.assertEqual(result.stdout, "")
+                            self.assertIn(f"expected {network}, reported {payload['network']}", result.stderr)
+                        else:
+                            self.assertEqual(result.stderr, "")
+                            self.assertEqual(json.loads(result.stdout), payload)
+                invalid = subprocess.run(command + ["--expect-network", "devnet"],
+                                         capture_output=True, text=True, timeout=5)
+                self.assertEqual((invalid.returncode, invalid.stdout), (2, ""))
+                self.assertEqual(paths, ["/readyz"] * 4)  # Invalid argument sends no GET.
             finally:
                 server.shutdown()
                 thread.join(timeout=5)

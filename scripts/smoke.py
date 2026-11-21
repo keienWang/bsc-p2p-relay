@@ -137,7 +137,7 @@ def check_cli_rejections(binary, work):
 def check_readiness_cli(api, work, health):
     """Exercise the shipped probe against the real relay, not a mock response."""
     probe = pathlib.Path(__file__).resolve().with_name("probe_readiness.py")
-    result = subprocess.run([sys.executable, str(probe), api], cwd=work,
+    result = subprocess.run([sys.executable, str(probe), api, "--expect-network", "mainnet"], cwd=work,
                             stdin=subprocess.DEVNULL, capture_output=True,
                             text=True, timeout=5, check=False)
     if result.returncode != 3 or result.stderr:

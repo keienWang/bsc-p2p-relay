@@ -57,11 +57,15 @@ def probe(address, fetch_deadline=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("api", help="literal loopback IP:port, e.g. 127.0.0.1:8787 or [::1]:8787")
+    parser.add_argument("--expect-network", choices=tuple(CHAIN_IDS),
+                        help="reject observations from a different configured network")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
     args = parser.parse_args(argv)
     try:
         result = probe(args.api, args.fetch_deadline)
+        if args.expect_network is not None and result["network"] != args.expect_network:
+            raise ValueError(f"network mismatch: expected {args.expect_network}, reported {result['network']}")
     except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:
         print(f"readiness unavailable: {error}", file=sys.stderr)
         return 1

@@ -257,7 +257,7 @@ verifies polling does not submit work or drain queues.
 For a one-shot local readiness check with distinct shell exit statuses:
 
 ```sh
-python3 scripts/probe_readiness.py 127.0.0.1:8787 --fetch-deadline 5
+python3 scripts/probe_readiness.py 127.0.0.1:8787 --expect-network mainnet --fetch-deadline 5
 ```
 
 This sends one GET to `/readyz` at a literal loopback address. It prints the
@@ -265,7 +265,11 @@ validated health JSON and exits `0` if a receive-capable session is present,
 or `3` if the relay correctly reports no ready session. Exit `1` means no
 trustworthy readiness observation (for example a timeout, incompatible schema,
 or HTTP status inconsistent with the peer counts), and produces no JSON.
-Invalid arguments exit `2`. The optional POSIX deadline works like the
+When supplied, `--expect-network mainnet|testnet` also returns `1` without
+printing JSON if the relay reports a different network, even if it is ready.
+Without this option, either internally consistent network/chain ID pair is
+accepted. This checks reported configuration only, not chain identity on the
+wire. Invalid arguments exit `2`. The optional POSIX deadline works like the
 collector's; without it, the two-second socket idle timeout remains in effect.
 No proxy, redirect, submission, peer dial, or external RPC is requested by
 this tool. As with any `/readyz` request, Relay may prune already-expired cache
