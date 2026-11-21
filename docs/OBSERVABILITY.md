@@ -271,6 +271,9 @@ No proxy, redirect, submission, peer dial, or external RPC is requested by
 this tool. As with any `/readyz` request, Relay may prune already-expired cache
 entries while producing the health response. It does not establish delivery
 or chain health.
+The delivery-binary smoke test runs this exact CLI on isolated IPv4 and, when
+available, IPv6 listeners. With no peers it expects exit `3` and JSON matching
+`/healthz`. Ready sessions and transitions are covered by separate fixtures.
 
 `BenchmarkHealthObservation` measures direct serial/parallel `Health()` reads
 and the readiness handler plus `ResponseRecorder`, with 0/20/200 synthetic

@@ -134,6 +134,19 @@ def check_cli_rejections(binary, work):
     print("PASS: six CLI positional-argument rejection cases, before Node startup")
 
 
+def check_readiness_cli(api, work, health):
+    """Exercise the shipped probe against the real relay, not a mock response."""
+    probe = pathlib.Path(__file__).resolve().with_name("probe_readiness.py")
+    result = subprocess.run([sys.executable, str(probe), api], cwd=work,
+                            stdin=subprocess.DEVNULL, capture_output=True,
+                            text=True, timeout=5, check=False)
+    if result.returncode != 3 or result.stderr:
+        raise AssertionError(f"readiness probe must report valid no-peer exit 3; "
+                             f"got {result.returncode}, stderr={result.stderr.strip()!r}")
+    if json.loads(result.stdout, object_pairs_hook=unique_object) != health:
+        raise AssertionError("readiness probe did not report the relay's no-peer health snapshot")
+
+
 def main(binary):
     binary = str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
@@ -230,11 +243,7 @@ def check_observation(binary, observe_only, ipv6=False):
             with opener.open(base + "/healthz", timeout=2) as response:
                 health = json.load(response)
             assert health["ready_peers"] == 0 and health["confirmation_tracking"] is False
-            try:
-                opener.open(base + "/readyz", timeout=2)
-                raise AssertionError("readiness incorrectly succeeded with no peers")
-            except urllib.error.HTTPError as error:
-                assert error.code == 503
+            check_readiness_cli(api, work, health)
             initial_stats = read_stats(opener, base)
             assert_stats_counts(initial_stats, 0)
             repeated_stats = read_stats(opener, base)
