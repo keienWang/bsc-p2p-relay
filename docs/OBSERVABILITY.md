@@ -241,7 +241,9 @@ go test -ldflags=-extldflags=-Wl,-z,noexecstack ./internal/relay \
 ```
 
 Unlike `Stats()`, `Health()` takes peer/cache locks and prunes expired cache
-entries. The benchmark keeps entries unexpired, so it does not measure expiry
+entries. Empty-cache health reads skip the clock and expiry check while still
+taking the same cache lock. Nonempty reads retain the expiry check. The
+benchmark keeps entries unexpired, so it does not measure expiry
 cohorts, live session churn, socket latency, or transaction throughput. Compare
 results only with matching toolchain/CPU/concurrency; timings are not CI gates.
 

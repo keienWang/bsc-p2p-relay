@@ -142,7 +142,11 @@ func (s *store) get(h common.Hash, now time.Time) *types.Transaction {
 func (s *store) stats() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pruneLocked(time.Now())
+	// Empty caches have no deadlines to compare. Skip the clock read
+	// when no transaction has been cached or the last entry has expired.
+	if len(s.expiries) != 0 {
+		s.pruneLocked(time.Now())
+	}
 	return len(s.entries), s.bytes
 }
 
