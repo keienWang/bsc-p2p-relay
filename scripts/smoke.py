@@ -26,11 +26,11 @@ STATS_METADATA_FIELDS = {"schema_version", "instance_id", "created_at", "observe
 
 
 def unique_object(pairs):
-    """Reject duplicate JSON keys in this smoke test, including nested objects."""
+    """Reject duplicate JSON keys, including nested objects."""
     value = {}
     for key, item in pairs:
         if key in value:
-            raise ValueError("duplicate statistics field")
+            raise ValueError("duplicate JSON field")
         value[key] = item
     return value
 
@@ -61,36 +61,43 @@ def decode_stats(payload):
     return value
 
 
+def read_observation_body(response, label):
+    """Validate shared headers/framing and bound one observation body."""
+    if (response.headers.get("Content-Type") != "application/json"
+            or response.headers.get("Cache-Control") != "no-store"
+            or response.headers.get("X-Content-Type-Options") != "nosniff"):
+        raise AssertionError(f"invalid {label} HTTP response")
+    # This smoke supports a single decimal Content-Length or an EOF-delimited
+    # response, not arbitrary transfer codings. Reject TE, including TE+CL,
+    # instead of silently trusting one of two conflicting framing signals.
+    if response.headers.get_all("Transfer-Encoding", []):
+        raise ValueError(f"unsupported or conflicting {label} Transfer-Encoding")
+    lengths = response.headers.get_all("Content-Length", [])
+    if len(lengths) > 1:
+        raise ValueError(f"duplicate {label} Content-Length")
+    expected_length = None
+    if lengths:
+        declaration = lengths[0].strip(" \t")
+        if not re.fullmatch(r"[0-9]+", declaration):
+            raise ValueError(f"invalid {label} Content-Length")
+        expected_length = int(declaration)
+        if expected_length > MAX_STATS_RESPONSE_BYTES:
+            raise ValueError(f"{label} Content-Length exceeds response bound")
+    # HTTPResponse.read(amt) can return an early EOF without IncompleteRead.
+    # Bounded reading is retained, with an explicit declared-length check.
+    payload = response.read(MAX_STATS_RESPONSE_BYTES + 1)
+    if len(payload) > MAX_STATS_RESPONSE_BYTES:
+        raise AssertionError(f"unexpectedly large {label} response")
+    if expected_length is not None and len(payload) != expected_length:
+        raise ValueError(f"incomplete {label} Content-Length body")
+    return payload
+
+
 def read_stats(opener, base):
     with opener.open(base + "/v1/stats", timeout=2) as response:
-        if (response.status != 200 or response.headers.get("Content-Type") != "application/json"
-                or response.headers.get("Cache-Control") != "no-store"
-                or response.headers.get("X-Content-Type-Options") != "nosniff"):
+        if response.status != 200:
             raise AssertionError("invalid statistics HTTP response")
-        # This smoke supports a single decimal Content-Length or an EOF-delimited
-        # response, not arbitrary transfer codings. Reject TE, including TE+CL,
-        # instead of silently trusting one of two conflicting framing signals.
-        if response.headers.get_all("Transfer-Encoding", []):
-            raise ValueError("unsupported or conflicting statistics Transfer-Encoding")
-        lengths = response.headers.get_all("Content-Length", [])
-        if len(lengths) > 1:
-            raise ValueError("duplicate statistics Content-Length")
-        expected_length = None
-        if lengths:
-            declaration = lengths[0].strip(" \t")
-            if not re.fullmatch(r"[0-9]+", declaration):
-                raise ValueError("invalid statistics Content-Length")
-            expected_length = int(declaration)
-            if expected_length > MAX_STATS_RESPONSE_BYTES:
-                raise ValueError("statistics Content-Length exceeds response bound")
-        # HTTPResponse.read(amt) can return an early EOF without IncompleteRead.
-        # Bounded reading is retained, with an explicit declared-length check.
-        payload = response.read(MAX_STATS_RESPONSE_BYTES + 1)
-        if len(payload) > MAX_STATS_RESPONSE_BYTES:
-            raise AssertionError("unexpectedly large statistics response")
-        if expected_length is not None and len(payload) != expected_length:
-            raise ValueError("incomplete statistics Content-Length body")
-        return decode_stats(payload)
+        return decode_stats(read_observation_body(response, "statistics"))
 
 
 def assert_stats_counts(value, validations):
