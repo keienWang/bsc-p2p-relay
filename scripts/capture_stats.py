@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Capture one validated loopback statistics snapshot into a new local file."""
 import argparse
+import contextlib
 import http.client
 import ipaddress
 import json
 import os
 import pathlib
+import signal
 import sys
 import tempfile
 import urllib.error
@@ -66,7 +68,45 @@ def save_new_snapshot(path, value):
         os.unlink(temporary)
 
 
-def capture(address, destination, *, same_instance_as=None):
+def parse_fetch_deadline(value):
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = 0
+    if not 0.001 <= seconds <= 60:  # Also rejects NaN and infinity.
+        raise argparse.ArgumentTypeError("fetch deadline must be 0.001 to 60 finite seconds")
+    return seconds
+
+
+@contextlib.contextmanager
+def fetch_time_limit(seconds):
+    if seconds is None:
+        yield
+        return
+    if not all(hasattr(signal, name) for name in ("SIGALRM", "ITIMER_REAL", "getitimer", "setitimer")):
+        raise ValueError("fetch deadline requires POSIX interval timers")
+    alarm = signal.SIGALRM
+    timer = signal.ITIMER_REAL
+    if signal.getsignal(alarm) != signal.SIG_DFL or any(signal.getitimer(timer)):
+        raise ValueError("cannot set fetch deadline while SIGALRM is already in use")
+
+    def expired(_signum, _frame):
+        raise TimeoutError(f"fetch deadline exceeded ({seconds:g} seconds)")
+
+    # CLI main thread only. Refuse an occupied process timer rather than
+    # displacing a caller's timer or handler.
+    previous = signal.signal(alarm, expired)
+    try:
+        signal.setitimer(timer, seconds)
+        yield
+    finally:
+        try:
+            signal.setitimer(timer, 0)
+        finally:
+            signal.signal(alarm, previous)
+
+
+def capture(address, destination, *, same_instance_as=None, fetch_deadline=None):
     base = loopback_base(address)
     baseline = None
     if same_instance_as is not None:
@@ -75,7 +115,8 @@ def capture(address, destination, *, same_instance_as=None):
         except (OSError, ValueError, RecursionError) as error:
             raise ValueError(f"baseline snapshot: {error}") from error
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    value = read_stats(opener, base)
+    with fetch_time_limit(fetch_deadline):
+        value = read_stats(opener, base)
     if baseline is not None:
         require_same_instance(baseline, value)
     save_new_snapshot(destination, value)
@@ -87,9 +128,12 @@ def main(argv=None):
     parser.add_argument("output", help="new snapshot filename; existing files are never overwritten")
     parser.add_argument("--same-instance-as", metavar="BASELINE",
                         help="publish only if the returned instance matches this saved snapshot")
+    parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
+                        help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
     args = parser.parse_args(argv)
     try:
-        capture(args.api, args.output, same_instance_as=args.same_instance_as)
+        capture(args.api, args.output, same_instance_as=args.same_instance_as,
+                fetch_deadline=args.fetch_deadline)
     except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:
         print("statistics capture failed: " + str(error), file=sys.stderr)
         return 1

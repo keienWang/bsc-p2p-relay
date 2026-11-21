@@ -166,8 +166,15 @@ Only literal loopback IPs with explicit ports are accepted (`[::1]:8787` works);
 hostnames, public addresses, URL paths, credentials and query strings are rejected.
 The collector makes one GET to `/v1/stats`, ignores environment HTTP proxies and
 does not follow redirects. It reuses the smoke reader's status/header/schema,
-framing and 16 KiB response checks, with its two-second socket timeout. This is
-not a total wall-clock deadline for a slow stream and not a polling daemon.
+framing and 16 KiB response checks, with its two-second socket idle timeout.
+For an optional total limit, use `--fetch-deadline 5`. On platforms with POSIX
+interval timers this bounds the connection, response headers, body and snapshot
+validation for one fetch, including slow responses that stay below the idle
+timeout. The value must be finite and between 0.001 and 60 seconds. The option
+refuses to use an occupied process alarm and does not time baseline-file reads
+or publication. A fetch deadline or idle timeout leaves no snapshot. Without
+the option, the original idle timeout remains the only network timer. The
+collector is not a polling daemon.
 
 The output directory must already exist and support same-directory hard links.
 The validated JSON is written to a temporary file and atomically published as a

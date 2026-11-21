@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import argparse
 import concurrent.futures
 import contextlib
 import io
 import json
 import pathlib
+import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -123,6 +128,87 @@ class CaptureStatsTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    def test_fetch_deadline_values_are_bounded_and_finite(self):
+        for value in ("0", "-1", "0.0001", "61", "NaN", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
+                capture_stats.parse_fetch_deadline(value)
+        self.assertEqual(capture_stats.parse_fetch_deadline("0.001"), 0.001)
+        self.assertEqual(capture_stats.parse_fetch_deadline("60"), 60)
+
+    def test_default_fetch_does_not_require_platform_timers(self):
+        with mock.patch("capture_stats.signal", object()):
+            with capture_stats.fetch_time_limit(None):
+                pass
+            with self.assertRaisesRegex(ValueError, "requires POSIX"), capture_stats.fetch_time_limit(1):
+                self.fail("configured deadline was silently ignored")
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "POSIX interval timer required")
+    def test_fetch_deadline_preserves_existing_alarm_and_idle_error(self):
+        alarm, timer = signal.SIGALRM, signal.ITIMER_REAL
+        self.assertEqual(signal.getsignal(alarm), signal.SIG_DFL)
+        self.assertEqual(signal.getitimer(timer), (0, 0))
+        handler = lambda *_: None
+        previous = signal.signal(alarm, handler)
+        try:
+            with self.assertRaisesRegex(ValueError, "already in use"), capture_stats.fetch_time_limit(1):
+                self.fail("existing alarm handler was replaced")
+            self.assertIs(signal.getsignal(alarm), handler)
+        finally:
+            signal.signal(alarm, previous)
+        signal.setitimer(timer, 30)
+        try:
+            with self.assertRaisesRegex(ValueError, "already in use"), capture_stats.fetch_time_limit(1):
+                self.fail("existing alarm timer was replaced")
+            self.assertGreater(signal.getitimer(timer)[0], 20)
+        finally:
+            signal.setitimer(timer, 0)
+        with self.assertRaisesRegex(TimeoutError, "original socket idle timeout"), capture_stats.fetch_time_limit(1):
+            raise TimeoutError("original socket idle timeout")
+        self.assertEqual(signal.getsignal(alarm), signal.SIG_DFL)
+        self.assertEqual(signal.getitimer(timer), (0, 0))
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "POSIX interval timer required")
+    def test_optional_fetch_deadline_limits_a_valid_slow_response(self):
+        body = json.dumps(sample()).encode()
+        script = pathlib.Path(capture_stats.__file__).resolve()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                for key, value in (("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                                   ("X-Content-Type-Options", "nosniff"), ("Content-Length", str(len(body)))):
+                    self.send_header(key, value)
+                self.end_headers()
+                try:
+                    for offset in range(0, len(body), 32):
+                        self.wfile.write(body[offset:offset + 32])
+                        self.wfile.flush()
+                        time.sleep(0.05)  # Every write is within the idle timeout.
+                except (BrokenPipeError, ConnectionResetError):
+                    return  # The deadline test closes this response early.
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server, tempfile.TemporaryDirectory() as directory:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                address = "127.0.0.1:" + str(server.server_port)
+                command = [sys.executable, str(script), address]
+                good, bad = (pathlib.Path(directory) / name for name in ("before.json", "after.json"))
+                allowed = subprocess.run(command + [str(good)], capture_output=True, text=True, timeout=8)
+                self.assertEqual((allowed.returncode, allowed.stderr), (0, ""))
+                self.assertEqual(json.loads(good.read_bytes()), sample())
+                limited = subprocess.run(command + [str(bad), "--fetch-deadline", "0.25"],
+                                         capture_output=True, text=True, timeout=8)
+                self.assertEqual((limited.returncode, limited.stdout), (1, ""))
+                self.assertIn("fetch deadline exceeded", limited.stderr)
+                self.assertEqual(list(pathlib.Path(directory).iterdir()), [good])
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
 
     def test_failure_has_no_success_stdout_or_file(self):
         with tempfile.TemporaryDirectory() as directory:
