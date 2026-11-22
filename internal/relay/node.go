@@ -260,14 +260,9 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	defer n.submitMu.Unlock()
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	available := false
-	for _, p := range n.peers {
-		if p.receiveTx {
-			available = true
-			break
-		}
-	}
-	if !available {
+	// This is the negotiated receive capability, not queue capacity or a
+	// guarantee that the registered session has not begun closing.
+	if n.readyPeers == 0 {
 		return result, ErrNoPeers, submitRejectedNoPeers
 	}
 	fresh, err := n.cache.add(tx, time.Now())

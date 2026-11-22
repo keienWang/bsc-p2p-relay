@@ -394,6 +394,52 @@ func TestStatsNoCompletionOnPanicOrBlockedCall(t *testing.T) {
 	assertStatsOutcomes(t, n, map[submitOutcome]uint64{submitRejectedNoPeers: 1})
 }
 
+func TestSubmitCapabilityGatePreservesValidationAndCacheOrder(t *testing.T) {
+	n := bareNode(t)
+	n.cache = newStore(1, MaxRawTransaction, time.Minute)
+	existing := fixtureTx(t, 56, 0, false)
+	if fresh, err := n.cache.add(existing, time.Now()); err != nil || !fresh {
+		t.Fatalf("fill local cache fixture: %v %v", fresh, err)
+	}
+	tx := fixtureTx(t, 56, 1, false)
+	raw := rawFixture(t, tx)
+	// These are synthetic handshaken-session states, with no writer or socket.
+	optedOut := addFakePeer(n, false, 1)
+	second := &peerSession{queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, second)
+	if got, err := n.Submit(nil); err == nil || errors.Is(err, ErrNoPeers) || got != (Submission{}) {
+		t.Fatalf("validation must happen before peer availability: %+v %v", got, err)
+	}
+	expectNoPeers := func() {
+		t.Helper()
+		got, err := n.Submit(raw)
+		if !errors.Is(err, ErrNoPeers) || got.Hash != tx.Hash() || got.Stage != "queued" || got.Duplicate || got.QueuedPeers != 0 {
+			t.Fatalf("no receive-capable session: %+v %v", got, err)
+		}
+	}
+	expectNoPeers() // The full cache must not classify this as a capacity rejection.
+
+	id := enode.ID{3}
+	ready := &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(id, ready)
+	if got, err := n.Submit(raw); !errors.Is(err, ErrCacheFull) || got.Hash != tx.Hash() || got.QueuedPeers != 0 {
+		t.Fatalf("mixed peers must proceed to cache admission: %+v %v", got, err)
+	}
+	n.cache.remove(existing.Hash())
+	if got, err := n.Submit(raw); err != nil || got.Hash != tx.Hash() || got.Duplicate || got.QueuedPeers != 1 {
+		t.Fatalf("mixed peers must enqueue only to the receiver: %+v %v", got, err)
+	}
+	n.removePeerLocked(id, ready)
+	expectNoPeers() // A cached hash still needs a receive-capable session.
+	if len(ready.queue) != 1 || len(optedOut.queue) != 0 || len(second.queue) != 0 {
+		t.Fatal("availability gate changed the queues")
+	}
+	assertStatsOutcomes(t, n, map[submitOutcome]uint64{
+		submitRejectedValidation: 1, submitRejectedNoPeers: 2,
+		submitRejectedCacheFull: 1, submitAcceptedNew: 1,
+	})
+}
+
 func TestStatsSnapshotNeedsNoStateLocks(t *testing.T) {
 	n := bareNode(t)
 	// All three locks held in the existing order: stats must still finish.

@@ -32,7 +32,7 @@ transaction bytes, transaction hashes, senders or peer identities.
 | `accepted_new_cache_lifetime_total` | Nil error after a fresh insertion in this attempt. |
 | `accepted_cached_retry_total` | Nil error after a live cache hit, including new peer fanout and success with no new queue item. |
 | `rejected_validation_total` | Stateless transaction validation failed. |
-| `rejected_no_peers_total` | ErrNoPeers. |
+| `rejected_no_peers_total` | ErrNoPeers; no registered session negotiated transaction receive capability. Checked after validation and before cache admission, even for a cached hash. |
 | `rejected_cache_full_total` | ErrCacheFull; count and byte limits remain combined. |
 | `rejected_queue_unavailable_total` | ErrQueuesFull; closing sessions or sent-map bounds can also cause this, not only physically full queues. |
 | `rejected_admission_expired_total` | ErrAdmissionExpired. |
