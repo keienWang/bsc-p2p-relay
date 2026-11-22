@@ -22,6 +22,12 @@ override it. This exercises
 connection recovery without sending transactions and does not establish
 public-peer stability, official-pool acceptance, or WAN reconnection latency.
 
+The same tagged gate also verifies mixed receive capability: one opted-out
+loopback peer stays connected while the only receive-capable peer leaves and a
+fresh receiver joins. The actual HTTP endpoints report connected/ready counts
+of 2/1, 1/0 and 2/1, with readiness statuses 200, 503 and 200 respectively.
+The statistics instance stays stable with no application traffic or submissions.
+
 ## Node lifecycle hardening, 2026-11-11
 
 The [lifecycle verification record](NODE_LIFECYCLE.md#independent-review-and-aggregate-local-verification)
