@@ -319,6 +319,12 @@ benchmark keeps entries unexpired, so it does not measure expiry
 cohorts, live session churn, socket latency, or transaction throughput. Compare
 results only with matching toolchain/CPU/concurrency; timings are not CI gates.
 
+`BenchmarkSentMaintenance` separately measures a periodic check of 1,024
+live deduplication records per synthetic session (20 or 200 sessions).
+A stored lower bound skips scanning per-peer metadata before any entry can
+expire. Due entries are still pruned at deadline equality, including when
+maintenance runs without new work. This benchmark is not a throughput test.
+
 Chain ID display text is computed when constructing the immutable chain view,
 not during each health poll. `TestHealthChainIdentityAndAllocations` checks the
 mainnet/testnet identity and zero allocations for direct steady-state `Health()`;

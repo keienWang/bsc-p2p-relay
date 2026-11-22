@@ -24,7 +24,7 @@ func BenchmarkDuplicateOccupancy(b *testing.B) {
 					b.Fatal(err)
 				}
 				for _, p := range n.peers {
-					p.sent[tx.Hash()] = expiry
+					p.recordSent(tx.Hash(), expiry)
 				}
 			}
 			b.ReportAllocs()

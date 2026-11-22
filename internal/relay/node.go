@@ -54,13 +54,14 @@ type pooledReply struct {
 }
 
 type peerSession struct {
-	sentNextSweep time.Time // Protected by Node.submitMu.
-	peer          *p2p.Peer
-	rw            p2p.MsgReadWriter
-	queue         chan outbound
-	done          chan struct{}
-	receiveTx     bool                      // Set by handshake before registration, immutable while registered.
-	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
+	sentNextSweep   time.Time // Protected by Node.submitMu.
+	sentExpiryFloor time.Time // <= every deadline while sent is nonempty; may be stale after a deletion.
+	peer            *p2p.Peer
+	rw              p2p.MsgReadWriter
+	queue           chan outbound
+	done            chan struct{}
+	receiveTx       bool                      // Set by handshake before registration, immutable while registered.
+	sent            map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
 	stats           runtimeStats
@@ -293,9 +294,6 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 			continue
 		default:
 		}
-		if p.sent == nil {
-			p.sent = make(map[common.Hash]time.Time)
-		}
 		// Sweep at most once per second, unless the hard count bound needs
 		// space. The target entry is still checked exactly on every access.
 		if !now.Before(p.sentNextSweep) {
@@ -319,7 +317,7 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 		}
 		select {
 		case p.queue <- outbound{code: eth.TransactionsMsg, data: types.Transactions{tx}, expires: expires}:
-			p.sent[tx.Hash()] = expires
+			p.recordSent(tx.Hash(), expires)
 			result.QueuedPeers++
 		default:
 		}
@@ -551,12 +549,34 @@ func (n *Node) prune(now time.Time) {
 	}
 }
 
+// recordSent requires the owning node's submitMu.
+func (p *peerSession) recordSent(hash common.Hash, deadline time.Time) {
+	if p.sent == nil {
+		p.sent = make(map[common.Hash]time.Time)
+	}
+	if len(p.sent) == 0 || deadline.Before(p.sentExpiryFloor) {
+		p.sentExpiryFloor = deadline
+	}
+	p.sent[hash] = deadline
+}
+
 // pruneSent requires the owning node's submitMu.
 func (p *peerSession) pruneSent(now time.Time) {
+	p.sentNextSweep = now.Add(time.Second)
+	if len(p.sent) == 0 || now.Before(p.sentExpiryFloor) {
+		return
+	}
+	var earliest time.Time
+	haveEarliest := false
 	for hash, deadline := range p.sent {
 		if !now.Before(deadline) {
 			delete(p.sent, hash)
+			continue
+		}
+		if !haveEarliest || deadline.Before(earliest) {
+			earliest = deadline
+			haveEarliest = true
 		}
 	}
-	p.sentNextSweep = now.Add(time.Second)
+	p.sentExpiryFloor = earliest
 }

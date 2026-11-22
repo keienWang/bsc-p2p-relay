@@ -114,7 +114,7 @@ func TestStatsLedgerUniqueScenarios(t *testing.T) {
 			case "closing":
 				close(p.done)
 			case "sent_bound":
-				p.sent = map[common.Hash]time.Time{{1}: time.Now().Add(time.Hour)}
+				p.recordSent(common.Hash{1}, time.Now().Add(time.Hour))
 			case "invalid_internal_ttl_fault":
 				// New rejects this TTL. This is branch fault injection, NOT an
 				// assertion that normal accepted configuration reaches expiry.

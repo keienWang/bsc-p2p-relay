@@ -278,7 +278,7 @@ func TestStatsSubmitOutcomePaths(t *testing.T) {
 		{"sent_limit", func(n *Node) {
 			p := addFakePeer(n, true, 1)
 			n.cfg.CacheCount = 1
-			p.sent = map[common.Hash]time.Time{{1}: time.Now().Add(time.Hour)}
+			p.recordSent(common.Hash{1}, time.Now().Add(time.Hour))
 		}, raw, submitRejectedQueueUnavailable, ErrQueuesFull},
 		{"byte_limit", func(n *Node) { addFakePeer(n, true, 1); n.cache = newStore(2, 1, time.Minute) }, raw, submitRejectedCacheFull, ErrCacheFull},
 		{"count_limit", func(n *Node) { addFakePeer(n, true, 1); n.cache = newStore(0, MaxRawTransaction, time.Minute) }, raw, submitRejectedCacheFull, ErrCacheFull},
@@ -337,7 +337,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	expired := time.Now().Add(-time.Second)
 	setCacheExpiryForTest(t, n.cache, expired, tx.Hash())
 	for _, peer := range n.peers {
-		peer.sent[tx.Hash()] = expired
+		peer.recordSent(tx.Hash(), expired)
 		<-peer.queue
 	}
 	got, err = n.Submit(raw)

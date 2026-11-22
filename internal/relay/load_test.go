@@ -178,7 +178,7 @@ func TestLoadConcurrentSubmitHealthAndExpiry(t *testing.T) {
 			if p.sent == nil {
 				p.sent = make(map[common.Hash]time.Time)
 			}
-			p.sent[tx.Hash()] = expired.Add(time.Hour)
+			p.recordSent(tx.Hash(), expired.Add(time.Hour))
 		}
 	}
 	start := make(chan struct{})
@@ -232,7 +232,7 @@ func TestLoadConcurrentSubmitHealthAndExpiry(t *testing.T) {
 	setCacheExpiryForTest(t, n.cache, expired)
 	for _, p := range n.peers {
 		for h := range p.sent {
-			p.sent[h] = expired
+			p.recordSent(h, expired)
 		}
 	}
 	n.submitMu.Unlock()
@@ -315,7 +315,7 @@ func BenchmarkSubmitNearCapacity(b *testing.B) {
 					if p.sent == nil {
 						p.sent = make(map[common.Hash]time.Time)
 					}
-					p.sent[tx.Hash()] = expiry
+					p.recordSent(tx.Hash(), expiry)
 				}
 			}
 			raw := raws[899]
@@ -366,7 +366,7 @@ func TestLoadTargetExpiresBeforeSentSweep(t *testing.T) {
 	for _, p := range n.peers {
 		p.sentNextSweep = nextSweep
 		for hash := range p.sent {
-			p.sent[hash] = past
+			p.recordSent(hash, past)
 		}
 	}
 	n.submitMu.Unlock()
@@ -419,7 +419,7 @@ func TestLoadFullSentMapForcesReclamation(t *testing.T) {
 	n.submitMu.Lock()
 	setCacheExpiryForTest(t, n.cache, past, txs[0].Hash())
 	for _, p := range n.peers {
-		p.sent[txs[0].Hash()] = past
+		p.recordSent(txs[0].Hash(), past)
 		p.sentNextSweep = time.Now().Add(time.Hour)
 	}
 	n.submitMu.Unlock()
@@ -464,7 +464,7 @@ func TestLoadIdlePruneReclaimsExpiredMetadata(t *testing.T) {
 	n.submitMu.Lock()
 	setCacheExpiryForTest(t, n.cache, past, txs[0].Hash())
 	for _, p := range n.peers {
-		p.sent[txs[0].Hash()] = past
+		p.recordSent(txs[0].Hash(), past)
 		p.sentNextSweep = time.Now().Add(time.Hour)
 	}
 	n.submitMu.Unlock()
@@ -530,7 +530,7 @@ func BenchmarkSubmitAtFullCapacity(b *testing.B) {
 			if p.sent == nil {
 				p.sent = make(map[common.Hash]time.Time)
 			}
-			p.sent[tx.Hash()] = now.Add(time.Hour)
+			p.recordSent(tx.Hash(), now.Add(time.Hour))
 			p.sentNextSweep = now.Add(time.Second)
 		}
 	}
