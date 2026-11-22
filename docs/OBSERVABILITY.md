@@ -324,6 +324,8 @@ live deduplication records per synthetic session (20 or 200 sessions).
 A stored lower bound skips scanning per-peer metadata before any entry can
 expire. Due entries are still pruned at deadline equality, including when
 maintenance runs without new work. This benchmark is not a throughput test.
+The lifecycle regression also checks successive cleanup ticks in a real idle
+loopback node with synthetic metadata and no connected peers.
 
 Chain ID display text is computed when constructing the immutable chain view,
 not during each health poll. `TestHealthChainIdentityAndAllocations` checks the

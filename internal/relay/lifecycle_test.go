@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -68,6 +69,62 @@ func TestNodeCloseAfterStartIsTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	address := n.server.ListenAddr
+	n.Close()
+	assertNodeClosed(t, n)
+	assertListenerReleased(t, address)
+}
+
+func TestNodeIdleMaintenanceRunsAcrossSuccessiveTicks(t *testing.T) {
+	n := protocolNode(t)
+	t.Cleanup(n.Close)
+	n.server.NoDial = true // There are no peers to dial; also enforce it in the fixture.
+	p := &peerSession{}
+	first, second, live := common.Hash{1}, common.Hash{2}, common.Hash{3}
+	due, future := time.Now().Add(-time.Second), time.Now().Add(time.Hour)
+	p.recordSent(first, due)
+	p.recordSent(second, future)
+	p.recordSent(live, future)
+	// Inject bookkeeping only, never a connection, transport, or transaction.
+	n.setPeerLocked(enode.ID{1}, p)
+	if err := n.Start(); err != nil {
+		t.Fatal(err)
+	}
+	address := n.server.ListenAddr
+
+	awaitPrune := func(expired, retained common.Hash, wantCount int) {
+		t.Helper()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		poll := time.NewTicker(20 * time.Millisecond)
+		defer poll.Stop()
+		for {
+			// Do not call Health or prune: only the periodic worker may clean up.
+			n.submitMu.Lock()
+			_, present := p.sent[expired]
+			kept := p.sent[retained]
+			count := len(p.sent)
+			n.submitMu.Unlock()
+			if !present {
+				if !kept.Equal(future) || count != wantCount {
+					t.Fatalf("idle pass retained %d records (want %d) and live deadline %v (want %v)",
+						count, wantCount, kept, future)
+				}
+				return
+			}
+			select {
+			case <-poll.C:
+			case <-timer.C:
+				t.Fatalf("idle worker did not reclaim hash %x", expired[0])
+			}
+		}
+	}
+	awaitPrune(first, second, 2)
+	// Make a second deadline due only after observing the first cleanup. A
+	// startup-only or one-shot maintenance call cannot pass the second phase.
+	n.submitMu.Lock()
+	p.recordSent(second, due)
+	n.submitMu.Unlock()
+	awaitPrune(second, live, 1)
 	n.Close()
 	assertNodeClosed(t, n)
 	assertListenerReleased(t, address)
