@@ -11,7 +11,8 @@ import unittest
 from unittest import mock
 
 from smoke import (MAX_STARTUP_LOG_BYTES, check_cli_rejections, check_observation,
-                   ipv6_loopback_available, startup_endpoint, wait_startup_endpoint)
+                   ipv6_loopback_available, running_local_relay, startup_endpoint,
+                   wait_startup_endpoint)
 
 
 ERROR = "unexpected positional arguments; use --help for supported flags"
@@ -112,6 +113,32 @@ class StartupEndpointSmokeTest(unittest.TestCase):
 
 
 class StartupCleanupSmokeTest(unittest.TestCase):
+    def test_fixed_rebind_requires_owned_endpoint_before_probe(self):
+        for endpoint, failure, poll in (
+            (("127.0.0.1:12346", 12346), None, None),
+            (None, RuntimeError("relay exited before smoke observation: bind HTTP API"), 1),
+        ):
+            with self.subTest(endpoint=endpoint):
+                child = mock.Mock()
+                child.poll.return_value = poll
+                with mock.patch("smoke.subprocess.Popen", return_value=child) as launch, \
+                        mock.patch("smoke.wait_startup_endpoint", return_value=endpoint, side_effect=failure):
+                    with self.assertRaisesRegex((AssertionError, RuntimeError),
+                                                "requested fixed loopback address|bind HTTP API"):
+                        with running_local_relay("/fixture/bsc-relay", "/fixture/work",
+                                                 "127.0.0.1", "127.0.0.1:12345", True):
+                            self.fail("a failed or mismatched bind exposed an endpoint")
+                self.assertEqual(launch.call_args.args[0], [
+                    "/fixture/bsc-relay", "--no-discovery", "--p2p", "127.0.0.1:0",
+                    "--api", "127.0.0.1:12345", "--observe-only",
+                ])
+                child.send_signal.assert_not_called()
+                if poll is None:
+                    child.kill.assert_called_once_with()
+                    child.wait.assert_called_once_with(timeout=10)
+                else:
+                    child.kill.assert_not_called()
+
     def test_startup_timeout_kills_and_reaps_real_child_without_http(self):
         real_popen = subprocess.Popen
         children = []

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Loopback-only process smoke test. Never submits a signed transaction."""
+import contextlib
 import datetime
 import errno
 import json
@@ -148,12 +149,14 @@ def check_readiness_cli(api, work, health):
         raise AssertionError("readiness probe did not report the relay's no-peer health snapshot")
 
 
-def run_stats_cli(script, work, expected_exit, *args):
+def run_stats_cli(script, work, expected_exit, *args, error_contains=None):
     tool = pathlib.Path(__file__).resolve().with_name(script)
     result = subprocess.run([sys.executable, str(tool), *args], cwd=work,
                             stdin=subprocess.DEVNULL, capture_output=True,
                             text=True, timeout=5, check=False)
-    if result.returncode != expected_exit or result.stderr:
+    valid_output = (not result.stderr if error_contains is None else
+                    not result.stdout and error_contains in result.stderr)
+    if result.returncode != expected_exit or not valid_output:
         raise AssertionError(f"{script} expected exit {expected_exit}; "
                              f"got {result.returncode}, stderr={result.stderr.strip()!r}")
     return result.stdout
@@ -186,6 +189,7 @@ def main(binary):
     check_observation(binary, observe_only=False)
     check_observation(binary, observe_only=True)
     check_observation(binary, observe_only=True, ipv6=True)
+    check_statistics_restart(binary)
 
 
 def check_observation_rejects_before_body(host, api, port):
@@ -254,6 +258,27 @@ def wait_startup_endpoint(process, log, host, observe_only):
         time.sleep(0.05)
 
 
+@contextlib.contextmanager
+def running_local_relay(binary, work, host, bind, observe_only):
+    with tempfile.TemporaryFile() as log:
+        flags = ["--observe-only"] if observe_only else []
+        process = subprocess.Popen(
+            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", bind, *flags],
+            cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            api, port = wait_startup_endpoint(process, log, host, observe_only)
+            if not bind.endswith(":0") and api != bind:
+                raise AssertionError("relay startup did not report the requested fixed loopback address")
+            yield api, port
+            process.send_signal(signal.SIGTERM)
+            assert process.wait(timeout=10) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+
+
 def check_observation(binary, observe_only, ipv6=False):
     if ipv6 and not ipv6_loopback_available():
         print("SKIP: IPv6 loopback is not available on this host")
@@ -262,15 +287,8 @@ def check_observation(binary, observe_only, ipv6=False):
     bind = "[::1]:0" if ipv6 else "127.0.0.1:0"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with (tempfile.TemporaryDirectory(prefix="relay-smoke-") as work,
-          tempfile.TemporaryDirectory(prefix="relay-smoke-snapshots-") as snapshots,
-          tempfile.TemporaryFile() as log):
-        flags = ["--observe-only"] if observe_only else []
-        process = subprocess.Popen(
-            [binary, "--no-discovery", "--p2p", "127.0.0.1:0", "--api", bind, *flags],
-            cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-        )
-        try:
-            api, port = wait_startup_endpoint(process, log, host, observe_only)
+          tempfile.TemporaryDirectory(prefix="relay-smoke-snapshots-") as snapshots):
+        with running_local_relay(binary, work, host, bind, observe_only) as (api, port):
             base = f"http://{api}"
             with opener.open(base + "/healthz", timeout=2) as response:
                 health = json.load(response)
@@ -299,17 +317,44 @@ def check_observation(binary, observe_only, ipv6=False):
             assert after_rejection["instance_id"] == initial_stats["instance_id"]
             assert after_rejection["created_at"] == initial_stats["created_at"]
             check_delta_cli(snapshots, initial_stats, after_rejection, validations)
-            process.send_signal(signal.SIGTERM)
-            assert process.wait(timeout=10) == 0
-            assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
-            if observe_only:
-                print(f"PASS: observation-only health/readiness/stats and HTTP 403 before upload on {host}")
-            else:
-                print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=10)
+        assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
+        if observe_only:
+            print(f"PASS: observation-only health/readiness/stats and HTTP 403 before upload on {host}")
+        else:
+            print("PASS: startup, health, readiness, stats schema/identity/headers/exact validation increment, malformed input, shutdown, no data files")
+
+
+def check_statistics_restart(binary):
+    """Reject a prior baseline after an actual restart on the same API address."""
+    host = "127.0.0.1"
+    with (tempfile.TemporaryDirectory(prefix="relay-restart-") as work,
+          tempfile.TemporaryDirectory(prefix="relay-restart-snapshots-") as snapshots):
+        with running_local_relay(binary, work, host, host + ":0", True) as (api, _):
+            old = capture_stats_cli(api, snapshots, "old.json")
+            assert_stats_counts(old, 0)
+        # The first child has already exited. Only probe after the replacement
+        # reports a successful bind at that exact address in its own log.
+        with running_local_relay(binary, work, host, api, True) as (rebound, _):
+            run_stats_cli("capture_stats.py", snapshots, 1, rebound, "refused.json",
+                          "--same-instance-as", "old.json", error_contains="instance changed")
+            before = capture_stats_cli(rebound, snapshots, "before.json")
+            assert_stats_counts(before, 0)
+            if before["instance_id"] == old["instance_id"]:
+                raise AssertionError("replacement process reused the old statistics identity")
+            run_stats_cli("stats_delta.py", snapshots, 1, "old.json", "before.json",
+                          error_contains="instance changed")
+            run_stats_cli("stats_delta.py", snapshots, 1, "old.json", "before.json",
+                          "--output", "refused-delta.json", error_contains="instance changed")
+            after = capture_stats_cli(rebound, snapshots, "after.json",
+                                      "--same-instance-as", "before.json")
+            assert_stats_counts(after, 0)
+            check_delta_cli(snapshots, before, after, 0)
+        if sorted(path.name for path in pathlib.Path(snapshots).iterdir()) != [
+            "after.json", "before.json", "old.json",
+        ]:
+            raise AssertionError("cross-instance rejection published output or left staging files")
+        assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files after restart"
+    print("PASS: same-address relay restart rejects prior statistics identity")
 
 
 if __name__ == "__main__":

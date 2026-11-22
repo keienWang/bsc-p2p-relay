@@ -216,6 +216,10 @@ The delivery-binary smoke also runs the actual capture and comparison CLIs
 against an isolated Relay. It checks same-instance files, exact deltas and the
 `--require-unchanged` exit codes in both handler modes. Smoke snapshots stay
 in a separate temporary directory, not the relay's working directory.
+It also restarts an isolated observe-only binary on the same loopback API
+address and verifies that capture and comparison reject the old identity
+without writing output, while the replacement's own baseline still works.
+This restart check makes no transaction submissions.
 
 To keep a comparison as an artifact without shell redirection truncating an
 existing report, use:
