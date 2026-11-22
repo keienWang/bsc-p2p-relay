@@ -327,6 +327,15 @@ maintenance runs without new work. This benchmark is not a throughput test.
 The lifecycle regression also checks successive cleanup ticks in a real idle
 loopback node with synthetic metadata and no connected peers.
 
+`BenchmarkSentMaintenanceDue` separates a synchronized expiry cohort
+(1,024 due records per session) from a staggered one (128 due and 896 live).
+It times just the maintenance pass, excluding map refill and verification.
+Run with a fixed count, e.g. `-bench '^BenchmarkSentMaintenanceDue$'
+-benchtime=30x -cpu=1`, using the linker policy above. A conservative latest
+deadline permits clearing a whole map only when all records are due, without
+freeing its backing capacity. Mixed cohorts still check each entry. These
+measurements do not include recording deadlines, concurrent work, or sockets.
+
 Chain ID display text is computed when constructing the immutable chain view,
 not during each health poll. `TestHealthChainIdentityAndAllocations` checks the
 mainnet/testnet identity and zero allocations for direct steady-state `Health()`;

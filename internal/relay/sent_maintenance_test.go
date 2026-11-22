@@ -44,6 +44,38 @@ func TestSentMaintenancePreservesExactDeadlines(t *testing.T) {
 	}
 }
 
+func TestSentMaintenanceCeilingNeverDropsLiveRecords(t *testing.T) {
+	p := &peerSession{}
+	now := time.Unix(1700000000, 0)
+	early, late := common.Hash{1}, common.Hash{2}
+	later := now.Add(time.Minute)
+	p.recordSent(early, now)
+	p.recordSent(late, later)
+	p.pruneSent(now)
+	if len(p.sent) != 1 || !p.sent[late].Equal(later) {
+		t.Fatal("mixed deadlines lost a live record")
+	}
+	p.recordSent(early, later)
+	p.pruneSent(later)
+	if len(p.sent) != 0 || !p.sentExpiryFloor.IsZero() || !p.sentExpiryCeil.IsZero() {
+		t.Fatal("all-due cohort was not cleared at deadline equality")
+	}
+	// Deleting the only latest record can leave a stale conservative ceiling.
+	// The remaining earlier record must still expire via the ordinary path.
+	p.recordSent(early, now)
+	p.recordSent(late, later)
+	delete(p.sent, late)
+	p.pruneSent(now)
+	if len(p.sent) != 0 || !p.sentExpiryCeil.IsZero() {
+		t.Fatal("a stale late ceiling prevented exact expiration or empty reset")
+	}
+	p.recordSent(early, later)
+	p.pruneSent(now)
+	if !p.sent[early].Equal(later) {
+		t.Fatal("refill lost a new future deadline")
+	}
+}
+
 // BenchmarkSentMaintenance isolates a periodic pass over stable per-peer
 // metadata. There are no sockets, messages, or transaction fixtures.
 func BenchmarkSentMaintenance(b *testing.B) {
@@ -65,5 +97,47 @@ func BenchmarkSentMaintenance(b *testing.B) {
 				n.prune(now)
 			}
 		})
+	}
+}
+
+// BenchmarkSentMaintenanceDue times only the prune pass; run with a fixed
+// iteration count, e.g. -benchtime=30x, since refills are not timed.
+func BenchmarkSentMaintenanceDue(b *testing.B) {
+	const records = 1024
+	now := time.Unix(1700000000, 0)
+	later := now.Add(time.Minute)
+	for _, peers := range []int{20, 200} {
+		for _, due := range []int{records, records / 8} {
+			name := "sessions_" + strconv.Itoa(peers) + "/due_" + strconv.Itoa(due)
+			b.Run(name, func(b *testing.B) {
+				b.StopTimer()
+				n := loadNode(b, records, peers, 1)
+				for _, p := range n.peers {
+					p.sent = make(map[common.Hash]time.Time, records)
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					for _, p := range n.peers {
+						for i := range records {
+							deadline := now
+							if i >= due {
+								deadline = later
+							}
+							p.recordSent(common.Hash{byte(i), byte(i >> 8)}, deadline)
+						}
+					}
+					b.StartTimer()
+					n.prune(now)
+					b.StopTimer()
+					for _, p := range n.peers {
+						if len(p.sent) != records-due {
+							b.Fatalf("prune kept %d records; want %d", len(p.sent), records-due)
+						}
+					}
+				}
+				b.ReportMetric(float64(peers*due), "expired/op")
+			})
+		}
 	}
 }

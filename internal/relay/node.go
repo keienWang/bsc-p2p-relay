@@ -56,6 +56,7 @@ type pooledReply struct {
 type peerSession struct {
 	sentNextSweep   time.Time // Protected by Node.submitMu.
 	sentExpiryFloor time.Time // <= every deadline while sent is nonempty; may be stale after a deletion.
+	sentExpiryCeil  time.Time // >= every deadline while sent is nonempty; may be stale after a deletion.
 	peer            *p2p.Peer
 	rw              p2p.MsgReadWriter
 	queue           chan outbound
@@ -554,8 +555,16 @@ func (p *peerSession) recordSent(hash common.Hash, deadline time.Time) {
 	if p.sent == nil {
 		p.sent = make(map[common.Hash]time.Time)
 	}
-	if len(p.sent) == 0 || deadline.Before(p.sentExpiryFloor) {
+	if len(p.sent) == 0 {
 		p.sentExpiryFloor = deadline
+		p.sentExpiryCeil = deadline
+	} else {
+		if deadline.Before(p.sentExpiryFloor) {
+			p.sentExpiryFloor = deadline
+		}
+		if deadline.After(p.sentExpiryCeil) {
+			p.sentExpiryCeil = deadline
+		}
 	}
 	p.sent[hash] = deadline
 }
@@ -566,17 +575,26 @@ func (p *peerSession) pruneSent(now time.Time) {
 	if len(p.sent) == 0 || now.Before(p.sentExpiryFloor) {
 		return
 	}
+	if !now.Before(p.sentExpiryCeil) {
+		clear(p.sent) // Retain capacity for the next cohort, as with individual deletes.
+		p.sentExpiryFloor = time.Time{}
+		p.sentExpiryCeil = time.Time{}
+		return
+	}
 	var earliest time.Time
-	haveEarliest := false
+	haveSurvivor := false
 	for hash, deadline := range p.sent {
 		if !now.Before(deadline) {
 			delete(p.sent, hash)
 			continue
 		}
-		if !haveEarliest || deadline.Before(earliest) {
+		if !haveSurvivor || deadline.Before(earliest) {
 			earliest = deadline
-			haveEarliest = true
 		}
+		haveSurvivor = true
 	}
 	p.sentExpiryFloor = earliest
+	if !haveSurvivor {
+		p.sentExpiryCeil = time.Time{} // The retained upper bound may have been stale.
+	}
 }
