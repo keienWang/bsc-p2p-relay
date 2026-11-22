@@ -220,6 +220,8 @@ It also restarts an isolated observe-only binary on the same loopback API
 address and verifies that capture and comparison reject the old identity
 without writing output, while the replacement's own baseline still works.
 This restart check makes no transaction submissions.
+Smoke checks and child reaping also remain enabled when Python optimization
+is requested through `-O` or `PYTHONOPTIMIZE`.
 
 To keep a comparison as an artifact without shell redirection truncating an
 existing report, use:

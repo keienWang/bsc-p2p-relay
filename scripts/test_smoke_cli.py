@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 
@@ -16,6 +17,36 @@ from smoke import (MAX_STARTUP_LOG_BYTES, check_cli_rejections, check_observatio
 
 
 ERROR = "unexpected positional arguments; use --help for supported flags"
+
+
+class OptimizedSmokeTest(unittest.TestCase):
+    def test_optimized_runtime_rejects_wrong_counts_and_failed_shutdown(self):
+        cases = {
+            "unexpected Submit outcomes": """
+                from smoke import assert_stats_counts
+                assert_stats_counts({"submit": {}, "http": {"concurrency_rejected_total": 0}}, 0)
+            """,
+            "relay exited with status 7 after SIGTERM": """
+                from unittest.mock import Mock, patch
+                from smoke import running_local_relay
+                child = Mock()
+                child.wait.return_value = 7
+                child.poll.return_value = 7
+                with patch("smoke.subprocess.Popen", return_value=child), patch(
+                    "smoke.wait_startup_endpoint", return_value=("127.0.0.1:12345", 12345)
+                ):
+                    with running_local_relay("/fixture/bsc-relay", "/fixture/work",
+                                             "127.0.0.1", "127.0.0.1:0", True):
+                        pass
+            """,
+        }
+        for message, code in cases.items():
+            with self.subTest(message=message):
+                result = subprocess.run([sys.executable, "-O", "-c", textwrap.dedent(code)],
+                                        cwd=os.path.dirname(__file__), capture_output=True,
+                                        text=True, timeout=5, check=False)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertIn(message, result.stderr)
 
 
 class CLISmokeTest(unittest.TestCase):

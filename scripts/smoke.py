@@ -102,11 +102,22 @@ def read_stats(opener, base):
         return decode_stats(read_observation_body(response, "statistics"))
 
 
+def require(condition, message):
+    # Qualification checks must still run under python -O / PYTHONOPTIMIZE.
+    if not condition:
+        raise AssertionError(message)
+
+
 def assert_stats_counts(value, validations):
     expected = dict.fromkeys(STATS_SUBMIT_FIELDS, 0)
     expected["rejected_validation_total"] = validations
-    assert value["submit"] == expected, "unexpected Submit outcomes"
-    assert value["http"] == {"concurrency_rejected_total": 0}, "unexpected HTTP refusal"
+    require(value["submit"] == expected, "unexpected Submit outcomes")
+    require(value["http"] == {"concurrency_rejected_total": 0}, "unexpected HTTP refusal")
+
+
+def require_same_stats_epoch(before, after):
+    require((before["instance_id"], before["created_at"]) ==
+            (after["instance_id"], after["created_at"]), "statistics instance changed during smoke")
 
 
 def check_cli_rejections(binary, work):
@@ -272,7 +283,8 @@ def running_local_relay(binary, work, host, bind, observe_only):
                 raise AssertionError("relay startup did not report the requested fixed loopback address")
             yield api, port
             process.send_signal(signal.SIGTERM)
-            assert process.wait(timeout=10) == 0
+            exit_code = process.wait(timeout=10)
+            require(exit_code == 0, f"relay exited with status {exit_code} after SIGTERM")
         finally:
             if process.poll() is None:
                 process.kill()
@@ -292,32 +304,33 @@ def check_observation(binary, observe_only, ipv6=False):
             base = f"http://{api}"
             with opener.open(base + "/healthz", timeout=2) as response:
                 health = json.load(response)
-            assert health["ready_peers"] == 0 and health["confirmation_tracking"] is False
+            require(health["ready_peers"] == 0 and health["confirmation_tracking"] is False,
+                    "unexpected health with no connected peers")
             check_readiness_cli(api, work, health)
             initial_stats = capture_stats_cli(api, snapshots, "before.json")
             assert_stats_counts(initial_stats, 0)
             repeated_stats = read_stats(opener, base)
             assert_stats_counts(repeated_stats, 0)
-            assert repeated_stats["instance_id"] == initial_stats["instance_id"]
-            assert repeated_stats["created_at"] == initial_stats["created_at"]
+            require_same_stats_epoch(initial_stats, repeated_stats)
             body = b"not JSON" if observe_only else b'{"raw_tx":"0x00"}'
             request = urllib.request.Request(base + "/v1/transactions", data=body, headers={"Content-Type": "application/json"})
             try:
                 opener.open(request, timeout=2)
                 raise AssertionError("malformed transaction accepted")
             except urllib.error.HTTPError as error:
-                assert error.code == (403 if observe_only else 400)
+                require(error.code == (403 if observe_only else 400),
+                        f"unexpected malformed submission status {error.code}")
                 if observe_only:
-                    assert "submission is disabled" in json.load(error)["error"]
+                    require("submission is disabled" in json.load(error)["error"],
+                            "observation-only error did not report disabled submission")
             if observe_only:
                 check_observation_rejects_before_body(host, api, port)
             after_rejection = capture_stats_cli(api, snapshots, "after.json", "--same-instance-as", "before.json")
             validations = 0 if observe_only else 1
             assert_stats_counts(after_rejection, validations)
-            assert after_rejection["instance_id"] == initial_stats["instance_id"]
-            assert after_rejection["created_at"] == initial_stats["created_at"]
+            require_same_stats_epoch(initial_stats, after_rejection)
             check_delta_cli(snapshots, initial_stats, after_rejection, validations)
-        assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files"
+        require(not list(pathlib.Path(work).iterdir()), "unexpected persistent data files")
         if observe_only:
             print(f"PASS: observation-only health/readiness/stats and HTTP 403 before upload on {host}")
         else:
@@ -353,7 +366,7 @@ def check_statistics_restart(binary):
             "after.json", "before.json", "old.json",
         ]:
             raise AssertionError("cross-instance rejection published output or left staging files")
-        assert list(pathlib.Path(work).iterdir()) == [], "unexpected persistent data files after restart"
+        require(not list(pathlib.Path(work).iterdir()), "unexpected persistent data files after restart")
     print("PASS: same-address relay restart rejects prior statistics identity")
 
 
