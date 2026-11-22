@@ -3,6 +3,7 @@
 """Capture one validated loopback statistics snapshot into a new local file."""
 import argparse
 import contextlib
+import errno
 import http.client
 import ipaddress
 import json
@@ -62,6 +63,19 @@ def require_same_instance(before, after):
         raise ValueError("instance changed; start a new comparison baseline")
     if before["created_at"] != after["created_at"]:
         raise ValueError("instance creation metadata changed")
+
+
+def check_capture_destination(target):
+    """Reject unusable local paths before making a read-only HTTP request."""
+    try:
+        target.lstat()
+    except FileNotFoundError:
+        parent = target.parent
+        if not stat.S_ISDIR(parent.stat().st_mode):
+            raise NotADirectoryError(errno.ENOTDIR, "snapshot destination parent is not a directory", str(parent))
+        return
+    # lstat also checks a dangling symlink, which would block os.link.
+    raise FileExistsError(errno.EEXIST, "snapshot destination already exists", str(target))
 
 
 def save_new_snapshot(path, value):
@@ -127,6 +141,8 @@ def capture(address, destination, *, same_instance_as=None, fetch_deadline=None)
             baseline = read_snapshot(same_instance_as)
         except (OSError, ValueError, RecursionError) as error:
             raise ValueError(f"baseline snapshot: {error}") from error
+    destination = pathlib.Path(destination)
+    check_capture_destination(destination)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with fetch_time_limit(fetch_deadline):
         value = read_stats(opener, base)

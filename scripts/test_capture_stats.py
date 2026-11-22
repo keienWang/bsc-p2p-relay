@@ -115,7 +115,23 @@ class CaptureStatsTests(unittest.TestCase):
                 target = pathlib.Path(directory) / "stats.json"
                 address = "127.0.0.1:" + str(server.server_port)
                 capture_stats.capture(address, target)
-                self.assertEqual(json.loads(target.read_bytes()), sample())
+                original = target.read_bytes()
+                self.assertEqual(json.loads(original), sample())
+                dangling = pathlib.Path(directory) / "occupied.json"
+                dangling.symlink_to("missing.json")
+                for path, error in (
+                    (target, FileExistsError),
+                    (dangling, FileExistsError),
+                    (pathlib.Path(directory) / "missing-dir" / "stats.json", FileNotFoundError),
+                    (target / "stats.json", NotADirectoryError),
+                ):
+                    with self.subTest(path=path), self.assertRaises(error):
+                        capture_stats.capture(address, path)
+                self.assertEqual(requests, ["/v1/stats"])
+                self.assertEqual(target.read_bytes(), original)
+                self.assertEqual(dangling.readlink(), pathlib.Path("missing.json"))
+                self.assertFalse(dangling.exists())
+                dangling.unlink()
                 server.redirect = True
                 with self.assertRaises(OSError):
                     capture_stats.capture(address, pathlib.Path(directory) / "redirect.json")
@@ -128,6 +144,22 @@ class CaptureStatsTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    def test_capture_does_not_overwrite_target_created_during_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "stats.json"
+
+            def fetch(_opener, _base):
+                self.assertFalse(target.exists())
+                capture_stats.save_new_snapshot(target, sample())
+                return dict(sample(), instance_id="b" * 32)
+
+            with mock.patch("capture_stats.read_stats", side_effect=fetch) as read:
+                with self.assertRaises(FileExistsError):
+                    capture_stats.capture("127.0.0.1:8787", target)
+            read.assert_called_once()
+            self.assertEqual(json.loads(target.read_bytes()), sample())
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [target])
 
     def test_fetch_deadline_values_are_bounded_and_finite(self):
         for value in ("0", "-1", "0.0001", "61", "NaN", "inf", "-inf", "invalid"):

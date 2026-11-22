@@ -177,8 +177,11 @@ the option, the original idle timeout remains the only network timer. The
 collector is not a polling daemon.
 
 The output directory must already exist and support same-directory hard links.
+The collector rejects an existing destination (including a dangling symlink)
+or a missing/non-directory parent before sending its GET. This early check
+does not reserve the path or test filesystem write permissions.
 The validated JSON is written to a temporary file and atomically published as a
-**new** filename; an existing baseline is never overwritten. Failures return 1
+**new** filename; even a file created during the fetch is never overwritten. Failures return 1
 and no success message. Invalid HTTP/JSON observations never produce a baseline
 file. Keep checking exit statuses and keep collections sequential; this wrapper
 does not change the counter/delta interpretation or authorize public exposure.
