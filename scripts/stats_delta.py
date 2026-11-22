@@ -15,9 +15,17 @@ SELECTABLE_COUNTERS = tuple(sorted(
 ))
 
 
-def compare_snapshots(before, after):
+def observed_time_key(stamp):
+    """Sort validated v1 UTC timestamps without dropping nanoseconds."""
+    seconds, _, fraction = stamp[:-1].partition(".")
+    return seconds, fraction.ljust(9, "0")
+
+
+def compare_snapshots(before, after, *, require_forward_time=False):
     """Inputs must have passed decode_stats. Deltas are not rates or an identity."""
     require_same_instance(before, after)
+    if require_forward_time and observed_time_key(after["observed_at"]) <= observed_time_key(before["observed_at"]):
+        raise ValueError("after observed_at must be strictly later than before observed_at")
     groups = {}
     for group in ("submit", "http"):
         delta = {}
@@ -43,6 +51,8 @@ def main(argv=None):
     parser.add_argument("before", help="earlier saved JSON response body")
     parser.add_argument("after", help="later saved JSON response body from the same endpoint/instance")
     parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
+    parser.add_argument("--require-forward-time", action="store_true",
+                        help="reject equal or decreasing UTC observation timestamps")
     guard = parser.add_mutually_exclusive_group()
     guard.add_argument("--require-unchanged", action="store_true",
                        help="exit 3 after reporting a valid comparison with any nonzero delta")
@@ -55,7 +65,7 @@ def main(argv=None):
         stage = "after snapshot"
         after = read_snapshot(args.after)
         stage = "snapshot comparison"
-        result = compare_snapshots(before, after)
+        result = compare_snapshots(before, after, require_forward_time=args.require_forward_time)
         if args.output is not None:
             stage = "output report"
             save_new_snapshot(args.output, result)

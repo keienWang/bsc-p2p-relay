@@ -240,6 +240,22 @@ comparison, or output report. A decreasing counter reports its field and exact
 before/after values so an operator can check the baseline without interpreting
 a reset or reversed ordering as a valid delta.
 
+For quiet windows, equal counters by themselves cannot catch a swapped pair
+of files. Add `--require-forward-time` if the observation timestamps must
+increase strictly:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json --require-forward-time
+```
+
+The check compares validated UTC `observed_at` values to nanosecond precision.
+An equal or earlier timestamp exits `1` without a comparison or output file.
+The option can be combined with the unchanged-counter checks; a valid
+comparison with counter growth can still exit `3`. By default, wall-clock
+ordering is not enforced. Only enable this check where clock adjustments or
+equal timestamps should invalidate a comparison; it cannot prove request
+order, verify elapsed time, or compute a rate.
+
 ### Assert sampled counters did not change
 
 ```sh

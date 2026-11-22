@@ -58,6 +58,56 @@ class StatsDeltaTests(unittest.TestCase):
         self.assertEqual(set(value["submit_delta"].values()), {0})
         self.assertEqual(value["after_observed_at"], after["observed_at"])
 
+    def test_cli_forward_time_guard_uses_exact_normalized_nanoseconds(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            before["observed_at"] = "2026-11-19T23:59:59.123456781Z"
+            after["observed_at"] = "2026-11-19T23:59:59.123456782Z"
+
+            def run(*args):
+                for filename, value in (("before.json", before), ("after.json", after)):
+                    (root / filename).write_text(json.dumps(value), encoding="utf-8")
+                return subprocess.run(command + ["before.json", "after.json", *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            option = "--require-forward-time"
+            for first, second in (
+                (before["observed_at"], after["observed_at"]),
+                ("2026-11-19T23:59:59.999999999Z", "2026-11-20T00:00:00Z"),
+                ("2026-11-20T00:00:00Z", "2026-11-20T00:00:00.000000001Z"),
+            ):
+                with self.subTest(first=first, second=second):
+                    before["observed_at"], after["observed_at"] = first, second
+                    result = run(option, "--require-unchanged")
+                    self.assertEqual((result.returncode, result.stderr), (0, ""))
+                    self.assertEqual(json.loads(result.stdout)["after_observed_at"], second)
+            for first, second in (
+                ("2026-11-19T23:59:59.123456782Z", "2026-11-19T23:59:59.123456781Z"),
+                ("2026-11-20T00:00:00Z", "2026-11-19T23:59:59.999999999Z"),
+                ("2026-11-20T00:00:00Z", "2026-11-20T00:00:00.000000000Z"),
+                ("2026-11-20T00:00:00.1Z", "2026-11-20T00:00:00.100000000Z"),
+            ):
+                with self.subTest(first=first, second=second):
+                    before["observed_at"], after["observed_at"] = first, second
+                    self.assertEqual(run().returncode, 0)
+                    refused = run(option, "--output", "refused.json")
+                    self.assertEqual((refused.returncode, refused.stdout), (1, ""))
+                    self.assertIn("after observed_at must be strictly later", refused.stderr)
+                    self.assertFalse((root / "refused.json").exists())
+            before["observed_at"] = "2026-11-20T00:00:00Z"
+            after["observed_at"] = "2026-11-20T00:00:00.000000001Z"
+            count = "concurrency_rejected_total"
+            after["http"][count] = 1
+            growth = run(option, "--require-unchanged")
+            self.assertEqual((growth.returncode, growth.stderr), (3, ""))
+            self.assertEqual(json.loads(growth.stdout)["http_delta"][count], 1)
+            before["http"][count] = 2
+            decrease = run(option)
+            self.assertEqual((decrease.returncode, decrease.stdout), (1, ""))
+            self.assertIn("counter decreased", decrease.stderr)
+
     def test_restart_metadata_change_and_every_counter_decrease_fail_closed(self):
         cases = []
         changed = sample()
