@@ -286,8 +286,13 @@ python3 scripts/probe_readiness.py 127.0.0.1:8787 --expect-network mainnet --fet
 ```
 
 This sends one GET to `/readyz` at a literal loopback address. It prints the
-validated health JSON and exits `0` if a receive-capable session is present,
-or `3` if the relay correctly reports no ready session. Exit `1` means no
+validated health JSON and exits `0` if at least one receive-capable session is
+present by default, or `3` if a valid observation falls below the minimum.
+Use `--min-ready-peers 2` to require more than one session (allowed: 1 to 200).
+The CLI may then exit `3` even when the server correctly returned HTTP 200.
+This checks only the reported count, not peer diversity, delivery or chain
+sync. It does not change the endpoint, its JSON, or its status validation.
+Exit `1` means no
 trustworthy readiness observation (for example a timeout, incompatible schema,
 or HTTP status inconsistent with the peer counts), and produces no JSON.
 When supplied, `--expect-network mainnet|testnet` also returns `1` without

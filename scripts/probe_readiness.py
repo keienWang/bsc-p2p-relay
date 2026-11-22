@@ -12,6 +12,7 @@ from capture_stats import NoRedirect, fetch_time_limit, loopback_base, parse_fet
 from smoke import read_observation_body, unique_object
 
 CHAIN_IDS = {"mainnet": "56", "testnet": "97"}
+MAX_PEERS = 200
 OCCUPANCY_FIELDS = {"cached_transactions", "cached_bytes"}
 PEER_FIELDS = {"ready_peers", "connected_peers"}
 WRITE_FIELDS = {"written_messages", "write_failures"}
@@ -27,7 +28,7 @@ def decode_readiness(payload, status):
         raise ValueError("invalid readiness network/chain identity")
     if value["confirmation_tracking"] is not False:
         raise ValueError("invalid readiness confirmation_tracking flag")
-    for fields, maximum in ((PEER_FIELDS, 200), (OCCUPANCY_FIELDS, (1 << 63) - 1),
+    for fields, maximum in ((PEER_FIELDS, MAX_PEERS), (OCCUPANCY_FIELDS, (1 << 63) - 1),
                             (WRITE_FIELDS, (1 << 64) - 1)):
         if any(type(value[key]) is not int or not 0 <= value[key] <= maximum for key in fields):
             raise ValueError("invalid readiness peer, occupancy, or write count")
@@ -54,11 +55,23 @@ def probe(address, fetch_deadline=None):
             return decode_readiness(read_observation_body(response, "readiness"), response.status)
 
 
+def parse_min_ready_peers(value):
+    try:
+        count = int(value)
+    except ValueError:
+        count = 0
+    if not 1 <= count <= MAX_PEERS:
+        raise argparse.ArgumentTypeError(f"minimum ready peers must be an integer from 1 to {MAX_PEERS}")
+    return count
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("api", help="literal loopback IP:port, e.g. 127.0.0.1:8787 or [::1]:8787")
     parser.add_argument("--expect-network", choices=tuple(CHAIN_IDS),
                         help="reject observations from a different configured network")
+    parser.add_argument("--min-ready-peers", type=parse_min_ready_peers, default=1, metavar="COUNT",
+                        help=f"minimum ready peers for exit 0 (1 to {MAX_PEERS}, default 1)")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
     args = parser.parse_args(argv)
@@ -70,7 +83,7 @@ def main(argv=None):
         print(f"readiness unavailable: {error}", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["ready_peers"] else 3
+    return 0 if result["ready_peers"] >= args.min_ready_peers else 3
 
 
 if __name__ == "__main__":

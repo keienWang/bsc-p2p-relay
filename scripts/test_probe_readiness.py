@@ -103,6 +103,38 @@ class ProbeReadinessTest(unittest.TestCase):
                                          capture_output=True, text=True, timeout=5)
                 self.assertEqual((invalid.returncode, invalid.stdout), (2, ""))
                 self.assertEqual(paths, ["/readyz"] * 4)  # Invalid argument sends no GET.
+                paths.clear()
+                option = "--min-ready-peers"
+                two = dict(ready, ready_peers=2)
+                maximum = dict(ready, ready_peers=200, connected_peers=200)
+                thresholds = (
+                    (200, ready, 2, 3, ()),
+                    (200, two, 2, 0, ()),
+                    (200, maximum, 200, 0, ()),
+                    (503, zero, 2, 3, ()),
+                    (200, zero, 2, 1, ()),
+                    (200, {"error": "unavailable"}, 2, 1, ()),
+                    (200, testnet_ready, 2, 1, ("--expect-network", "mainnet")),
+                )
+                for status, payload, minimum, exit_code, extra in thresholds:
+                    with self.subTest(status=status, minimum=minimum, exit_code=exit_code):
+                        responses.put((status, json.dumps(payload).encode()))
+                        result = subprocess.run(command + [option, str(minimum), *extra],
+                                                capture_output=True, text=True, timeout=5)
+                        self.assertEqual(result.returncode, exit_code, result.stderr)
+                        if exit_code == 1:
+                            self.assertEqual(result.stdout, "")
+                            self.assertIn("readiness unavailable:", result.stderr)
+                        else:
+                            self.assertEqual(result.stderr, "")
+                            self.assertEqual(json.loads(result.stdout), payload)
+                for bad in ("0", "-1", "201", "1.5", "unknown"):
+                    with self.subTest(minimum=bad):
+                        result = subprocess.run(command + [option, bad],
+                                                capture_output=True, text=True, timeout=5)
+                        self.assertEqual((result.returncode, result.stdout), (2, ""))
+                        self.assertIn("integer from 1 to 200", result.stderr)
+                self.assertEqual(paths, ["/readyz"] * len(thresholds))
             finally:
                 server.shutdown()
                 thread.join(timeout=5)
