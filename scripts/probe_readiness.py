@@ -4,11 +4,13 @@
 import argparse
 import http.client
 import json
+import pathlib
 import sys
 import urllib.error
 import urllib.request
 
-from capture_stats import NoRedirect, fetch_time_limit, loopback_base, parse_fetch_deadline
+from capture_stats import (NoRedirect, check_capture_destination, fetch_time_limit,
+                           loopback_base, parse_fetch_deadline, save_new_snapshot)
 from smoke import read_observation_body, unique_object
 
 CHAIN_IDS = {"mainnet": "56", "testnet": "97"}
@@ -74,15 +76,22 @@ def main(argv=None):
                         help=f"minimum ready peers for exit 0 (1 to {MAX_PEERS}, default 1)")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
+    parser.add_argument("--output", type=pathlib.Path, metavar="FILE",
+                        help="save the validated observation to a new file instead of stdout")
     args = parser.parse_args(argv)
     try:
+        if args.output is not None:
+            check_capture_destination(args.output)
         result = probe(args.api, args.fetch_deadline)
         if args.expect_network is not None and result["network"] != args.expect_network:
             raise ValueError(f"network mismatch: expected {args.expect_network}, reported {result['network']}")
+        if args.output is not None:
+            save_new_snapshot(args.output, result)
     except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:
         print(f"readiness unavailable: {error}", file=sys.stderr)
         return 1
-    print(json.dumps(result, sort_keys=True))
+    if args.output is None:
+        print(json.dumps(result, sort_keys=True))
     return 0 if result["ready_peers"] >= args.min_ready_peers else 3
 
 

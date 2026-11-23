@@ -147,16 +147,23 @@ def check_cli_rejections(binary, work):
     print("PASS: six CLI positional-argument rejection cases, before Node startup")
 
 
-def check_readiness_cli(api, work, health):
+def check_readiness_cli(api, work, health, *, output=None):
     """Exercise the shipped probe against the real relay, not a mock response."""
     probe = pathlib.Path(__file__).resolve().with_name("probe_readiness.py")
-    result = subprocess.run([sys.executable, str(probe), api, "--expect-network", "mainnet"], cwd=work,
-                            stdin=subprocess.DEVNULL, capture_output=True,
+    command = [sys.executable, str(probe), api, "--expect-network", "mainnet"]
+    if output is not None:
+        command.extend(("--output", str(output)))
+    result = subprocess.run(command, cwd=work, stdin=subprocess.DEVNULL, capture_output=True,
                             text=True, timeout=5, check=False)
     if result.returncode != 3 or result.stderr:
         raise AssertionError(f"readiness probe must report valid no-peer exit 3; "
                              f"got {result.returncode}, stderr={result.stderr.strip()!r}")
-    if json.loads(result.stdout, object_pairs_hook=unique_object) != health:
+    if output is None:
+        payload = result.stdout
+    else:
+        require(not result.stdout, "readiness file mode unexpectedly wrote to stdout")
+        payload = output.read_bytes()
+    if json.loads(payload, object_pairs_hook=unique_object) != health:
         raise AssertionError("readiness probe did not report the relay's no-peer health snapshot")
 
 
@@ -307,6 +314,7 @@ def check_observation(binary, observe_only, ipv6=False):
             require(health["ready_peers"] == 0 and health["confirmation_tracking"] is False,
                     "unexpected health with no connected peers")
             check_readiness_cli(api, work, health)
+            check_readiness_cli(api, work, health, output=pathlib.Path(snapshots) / "readiness.json")
             initial_stats = capture_stats_cli(api, snapshots, "before.json")
             assert_stats_counts(initial_stats, 0)
             repeated_stats = read_stats(opener, base)

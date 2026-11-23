@@ -342,13 +342,29 @@ Without this option, either internally consistent network/chain ID pair is
 accepted. This checks reported configuration only, not chain identity on the
 wire. Invalid arguments exit `2`. The optional POSIX deadline works like the
 collector's; without it, the two-second socket idle timeout remains in effect.
+
+To preserve a snapshot without truncating a prior file through shell
+redirection, use a new filename:
+
+```sh
+python3 scripts/probe_readiness.py 127.0.0.1:8787 --output readiness.json
+```
+
+With `--output`, stdout stays empty. Both exit `0` and exit `3` publish the
+complete validated health object, including a valid HTTP 503 observation or
+an HTTP 200 observation below the local threshold. Invalid responses and
+network mismatches do not produce a snapshot. An existing filename or invalid
+parent is rejected before GET; filesystem publication errors exit `1`.
+As with statistics capture, the parent must support same-directory hard links.
+Publication is an atomic create without overwriting, not a durability guarantee.
+
 No proxy, redirect, submission, peer dial, or external RPC is requested by
 this tool. As with any `/readyz` request, Relay may prune already-expired cache
 entries while producing the health response. It does not establish delivery
 or chain health.
 The delivery-binary smoke test runs this exact CLI on isolated IPv4 and, when
 available, IPv6 listeners. With no peers it expects exit `3` and JSON matching
-`/healthz`. Ready sessions and transitions are covered by separate fixtures.
+`/healthz` both on stdout and in a new snapshot file. Ready sessions and transitions are covered by separate fixtures.
 
 `BenchmarkHealthObservation` measures direct serial/parallel `Health()` reads
 and the readiness handler plus `ResponseRecorder`, with 0/20/200 synthetic

@@ -4,6 +4,7 @@ import pathlib
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,7 +40,9 @@ class ProbeReadinessTest(unittest.TestCase):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 paths.append(self.path)
-                status, payload = responses.get_nowait()
+                status, payload, *on_request = responses.get_nowait()
+                for callback in on_request:
+                    callback()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -135,9 +138,58 @@ class ProbeReadinessTest(unittest.TestCase):
                         self.assertEqual((result.returncode, result.stdout), (2, ""))
                         self.assertIn("integer from 1 to 200", result.stderr)
                 self.assertEqual(paths, ["/readyz"] * len(thresholds))
+                self.assert_saved_observations(command, responses, paths, ready, zero)
             finally:
                 server.shutdown()
                 thread.join(timeout=5)
+
+    def assert_saved_observations(self, command, responses, paths, ready, zero):
+        paths.clear()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+
+            def run(destination, *extra):
+                return subprocess.run(command + ["--output", destination, *extra], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            for name, status, payload, code, extra in (
+                ("ready.json", 200, ready, 0, ()),
+                ("below-threshold.json", 200, ready, 3, ("--min-ready-peers", "2")),
+                ("unready.json", 503, zero, 3, ()),
+                ("inconsistent.json", 503, ready, 1, ()),
+                ("wrong-network.json", 200, ready, 1, ("--expect-network", "testnet")),
+            ):
+                with self.subTest(name=name):
+                    responses.put((status, json.dumps(payload).encode()))
+                    result = run(name, *extra)
+                    self.assertEqual((result.returncode, result.stdout), (code, ""), result.stderr)
+                    path = root / name
+                    if code == 1:
+                        self.assertFalse(path.exists())
+                        self.assertIn("readiness unavailable:", result.stderr)
+                    else:
+                        self.assertEqual(result.stderr, "")
+                        self.assertEqual(json.loads(path.read_bytes()), payload)
+
+            self.assertEqual(paths, ["/readyz"] * 5)
+            paths.clear()
+            previous = (root / "ready.json").read_bytes()
+            for path in ("ready.json", "missing/record.json"):
+                with self.subTest(path=path):
+                    rejected = run(path)
+                    self.assertEqual((rejected.returncode, rejected.stdout), (1, ""))
+                    self.assertIn("readiness unavailable:", rejected.stderr)
+            self.assertEqual((root / "ready.json").read_bytes(), previous)
+            self.assertEqual(paths, [])
+
+            raced = root / "race.json"
+            responses.put((200, json.dumps(ready).encode(), lambda: raced.write_bytes(b"concurrent result")))
+            rejected = run(raced.name)
+            self.assertEqual((rejected.returncode, rejected.stdout), (1, ""))
+            self.assertIn("readiness unavailable:", rejected.stderr)
+            self.assertEqual(raced.read_bytes(), b"concurrent result")
+            self.assertEqual(list(root.glob(".relay-stats-*")), [])
+            self.assertEqual(paths, ["/readyz"])
 
 
 if __name__ == "__main__":
