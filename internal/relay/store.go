@@ -129,15 +129,43 @@ func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
 func (s *store) get(h common.Hash, now time.Time) *types.Transaction {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e, ok := s.entries[h]
-	if !ok {
-		return nil
+	if entry := s.getEntryLocked(h, now); entry != nil {
+		return entry.tx
 	}
-	if !now.Before(e.expires) {
+	return nil
+}
+
+func (s *store) getEntryLocked(h common.Hash, now time.Time) *cacheEntry {
+	e := s.entries[h]
+	if e != nil && !now.Before(e.expires) {
 		s.removeLocked(e)
 		return nil
 	}
-	return e.tx
+	return e
+}
+
+// pooledTransactions takes one cache lock for the bounded list already
+// validated by the wire handler. Transaction size was recorded at admission;
+// encoding and transport run only after unlocking.
+func (s *store) pooledTransactions(hashes []common.Hash, now time.Time, maxBytes int) types.Transactions {
+	if len(hashes) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var txs types.Transactions
+	for _, hash := range hashes {
+		e := s.getEntryLocked(hash, now)
+		if e == nil {
+			continue
+		}
+		if e.size > maxBytes {
+			break
+		}
+		txs = append(txs, e.tx)
+		maxBytes -= e.size
+	}
+	return txs
 }
 func (s *store) stats() (int, int) {
 	s.mu.Lock()

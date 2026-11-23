@@ -545,19 +545,7 @@ func (n *Node) outboundData(out outbound) any {
 	if !ok {
 		return out.data
 	}
-	var txs types.Transactions
-	size := 0
-	now := time.Now()
-	for _, h := range reply.hashes {
-		if tx := n.cache.get(h, now); tx != nil {
-			if size+int(tx.Size()) > maxRequestMessage/2 {
-				break
-			}
-			txs = append(txs, tx)
-			size += int(tx.Size())
-		}
-	}
-	return []any{reply.requestID, txs}
+	return []any{reply.requestID, n.cache.pooledTransactions(reply.hashes, time.Now(), maxRequestMessage/2)}
 }
 
 // Periodic maintenance also releases expired per-peer hash metadata while idle.
