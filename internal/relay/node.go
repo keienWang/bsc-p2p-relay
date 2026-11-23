@@ -438,6 +438,16 @@ func (n *Node) writer(p *peerSession) {
 		case <-n.stop:
 			return
 		case out := <-p.queue:
+			// The outer select may choose a ready queue even when cancellation is
+			// already visible. Recheck before encoding/writing that message; this
+			// does not cancel work already admitted to the write path.
+			select {
+			case <-p.done:
+				return
+			case <-n.stop:
+				return
+			default:
+			}
 			if out.code == eth.TransactionsMsg && (out.expires.IsZero() || !time.Now().Before(out.expires)) {
 				continue
 			}

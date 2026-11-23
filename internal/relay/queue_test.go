@@ -16,6 +16,37 @@ type captureRW struct{ codes chan uint64 }
 
 func (rw *captureRW) ReadMsg() (p2p.Msg, error)  { return p2p.Msg{}, io.EOF }
 func (rw *captureRW) WriteMsg(msg p2p.Msg) error { _ = msg.Discard(); rw.codes <- msg.Code; return nil }
+
+func TestWriterDoesNotWriteQueuedControlAfterStop(t *testing.T) {
+	for _, target := range []string{"peer", "node"} {
+		t.Run(target, func(t *testing.T) {
+			// Repeated ready-queue/cancellation choices exercise either branch of
+			// the select without sleeps, messages on a wire, or timing assumptions.
+			n := bareNode(t)
+			if target == "node" {
+				close(n.stop)
+			}
+			for range 64 {
+				rw := &captureRW{codes: make(chan uint64, 1)}
+				p := &peerSession{rw: rw, queue: make(chan outbound, 1), done: make(chan struct{})}
+				p.queue <- outbound{code: eth.BlockHeadersMsg, data: []any{uint64(7), []uint64{}}}
+				if target == "peer" {
+					close(p.done)
+				}
+				n.writer(p)
+				select {
+				case code := <-rw.codes:
+					t.Fatalf("shutdown writer emitted queued control code %d", code)
+				default:
+				}
+			}
+			if n.writes.Load() != 0 || n.writeFailures.Load() != 0 {
+				t.Fatal("shutdown writer recorded transport activity")
+			}
+		})
+	}
+}
+
 func TestWriterDropsExpiredTransactions(t *testing.T) {
 	n := bareNode(t)
 	rw := &captureRW{codes: make(chan uint64, 2)}

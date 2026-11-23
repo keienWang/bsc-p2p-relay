@@ -148,8 +148,11 @@ Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
 to the verified relay PID. The CLI allows up to five seconds for HTTP requests
 to finish. If that drain fails, it closes the remaining HTTP connections and
 returns an error. It then closes the P2P server. This is **not a delivery drain**:
-queued transactions can be abandoned. Wait for process exit and record its status. Do not use a
-forced kill as an ordinary shutdown or treat a clean exit as a delivery receipt.
+queued transactions can be abandoned. The writer does not start work on a
+dequeued message if its stop signal is already visible at the pre-write check.
+This does not cancel a write already past that check. Wait for process exit and
+record its status. Do not use a forced kill as an ordinary shutdown or treat a
+clean exit as a delivery receipt.
 Any uncompleted or unanswered client request has an uncertain outcome.
 
 ### Node lifecycle callers
