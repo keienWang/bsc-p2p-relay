@@ -55,6 +55,10 @@ func run() error {
 }
 
 func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool) error {
+	return runRelayWithHTTPListener(ctx, stopSignals, cfg, api, observeOnly, net.Listen)
+}
+
+func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool, listen func(string, string) (net.Listener, error)) error {
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -81,11 +85,18 @@ func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api str
 	srv := &http.Server{Addr: api, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	// Bind synchronously so startup logs never announce an API whose listener
 	// failed to open. Serve owns the listener; defer also covers early returns.
-	listener, err := net.Listen("tcp", api)
+	listener, err := listen("tcp", api)
 	if err != nil {
 		return fmt.Errorf("bind HTTP API: %w", err)
 	}
 	defer listener.Close()
+	// A signal can arrive while the synchronous bind is in progress. Do
+	// not begin serving or announce a launch if cancellation is already
+	// observable here. Later cancellation follows the normal HTTP drain.
+	if ctx.Err() != nil {
+		stopSignals()
+		return nil
+	}
 	errs := make(chan error, 1)
 	go func() { errs <- srv.Serve(listener) }()
 	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", listener.Addr().String(), "observe_only", observeOnly, "enode", node.Enode())

@@ -67,6 +67,85 @@ func TestRunRelayAPIBindFailureDoesNotAnnounceStartup(t *testing.T) {
 	}
 }
 
+// Cancellation immediately after a successful HTTP bind must not start Serve
+// or log a successful launch. Both owned listeners must still be released.
+func TestRunRelayDoesNotAnnounceStartupWhenCanceledDuringAPIBind(t *testing.T) {
+	reservation, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2pAddress := reservation.Addr().String()
+	if err := reservation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := relay.DefaultConfig()
+	cfg.NoDiscovery = true
+	cfg.ListenAddr = p2pAddress
+
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var apiAddress string
+	bind := func(network, address string) (net.Listener, error) {
+		listener, err := net.Listen(network, address)
+		if err == nil {
+			t.Cleanup(func() { _ = listener.Close() })
+			apiAddress = listener.Addr().String()
+			cancel()
+		}
+		return listener, err
+	}
+
+	var stops int
+	if err := runRelayWithHTTPListener(ctx, func() { stops++ }, cfg, "127.0.0.1:0", true, bind); err != nil {
+		t.Fatal(err)
+	}
+	if apiAddress == "" || !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatal("fixture did not cancel after binding the API")
+	}
+	if strings.Contains(logs.String(), "experimental relay started") {
+		t.Errorf("announced startup despite cancellation during bind: %s", logs.String())
+	}
+	if stops != 1 {
+		t.Errorf("restored signal handling %d times; want 1", stops)
+	}
+	for _, address := range []string{p2pAddress, apiAddress} {
+		listener, err := net.Listen("tcp4", address)
+		if err != nil {
+			t.Fatalf("listener not released at %s: %v", address, err)
+		}
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRunRelayReportsAPIBindFailureEvenIfCanceled(t *testing.T) {
+	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	cfg := relay.DefaultConfig()
+	cfg.NoDiscovery = true
+	cfg.ListenAddr = "127.0.0.1:0"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bind := func(network, address string) (net.Listener, error) {
+		listener, err := net.Listen(network, address)
+		cancel()
+		return listener, err
+	}
+	err = runRelayWithHTTPListener(ctx, func() { t.Error("bind failure followed cancellation branch") },
+		cfg, occupied.Addr().String(), true, bind)
+	if !errors.Is(err, syscall.EADDRINUSE) || !strings.HasPrefix(err.Error(), "bind HTTP API: ") {
+		t.Fatalf("want HTTP bind failure with underlying cause, got %v", err)
+	}
+}
+
 func TestRunRelayIdentifiesP2PBindFailure(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

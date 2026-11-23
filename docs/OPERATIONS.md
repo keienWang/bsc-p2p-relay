@@ -299,6 +299,11 @@ between `/readyz` and submit. An already cached transaction can receive 503 or
 If startup reports `bind HTTP API:` followed by `address already in use`,
 take the fixed port from `--api` (default `8787`). A `start P2P node:` error
 instead identifies P2P startup, whose listen address is configured by `--p2p`.
+
+If shutdown is already visible after a successful HTTP bind, the CLI releases
+both listeners without announcing startup. A bind error still reports its
+original startup stage; cancellation after startup uses the normal HTTP drain.
+
 For the HTTP API, run this read-only check in the **same network namespace as
 the failing relay**. Replace `8787` with the configured port:
 
