@@ -8,7 +8,7 @@
 4. Ready peers receive bounded local queue entries for transaction broadcast.
 5. The peer writer sends eth transaction messages. A completed write is not a peer acknowledgment or an inclusion result.
 
-HTTP 202 with `stage: queued` means at least one local peer queue accepted the item. HTTP 202 with `stage: cached` has zero new admissions because currently eligible peers already received a queue entry for that hash. No ready peers produces HTTP 503; lack of cache or eligible queue capacity produces HTTP 429. These are local transport states, not propagation guarantees. Cache contents and queues are not durable.
+HTTP 202 with `stage: queued` means at least one local peer queue accepted the item. HTTP 202 with `stage: cached` has zero new admissions because currently eligible peers already received a queue entry for that hash. No ready peers, or a Node already stopping at the admission check, produces HTTP 503; lack of cache or eligible queue capacity produces HTTP 429. These are local transport states, not propagation guarantees. Cache contents and queues are not durable.
 
 ## Dependency and protocol boundary
 

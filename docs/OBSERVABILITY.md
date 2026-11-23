@@ -36,7 +36,7 @@ transaction bytes, transaction hashes, senders or peer identities.
 | `rejected_cache_full_total` | ErrCacheFull; count and byte limits remain combined. |
 | `rejected_queue_unavailable_total` | ErrQueuesFull; closing sessions or sent-map bounds can also cause this, not only physically full queues. |
 | `rejected_admission_expired_total` | ErrAdmissionExpired. |
-| `other_total` | Any other normal returned classification; expected zero for current supported paths, never implicitly success. |
+| `other_total` | Any other normal returned classification, including ErrNodeClosed when stopping; never implicitly success. |
 <!-- stats-submit:end -->
 
 <!-- stats-http:start -->

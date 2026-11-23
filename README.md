@@ -104,7 +104,7 @@ On accepted submission, HTTP 202 returns `hash`, `sender`, `queued_peers`, `dupl
 - `queued_peers` counts local peer queue admissions, not acknowledgments from the network. It can be zero.
 - `duplicate` identifies an already cached submission; it is not an inclusion check.
 - `stage: queued` means at least one local queue admission. `stage: cached` means a duplicate has no new eligible peer.
-- With no ready peer, the request returns HTTP 503. A full cache or full eligible peer queues returns HTTP 429.
+- With no ready peer, or if the Node is already stopping at admission, the request returns HTTP 503. A full cache or full eligible peer queues returns HTTP 429.
 - Resubmitting a cached transaction can enqueue it to a newly connected peer. The same transaction is not repeatedly queued to the same peer within its TTL.
 
 Request size and resource limits apply. Invalid or unsupported transactions are rejected. A successful HTTP response is not a receipt and provides no execution guarantee.

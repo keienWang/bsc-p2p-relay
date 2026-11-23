@@ -159,8 +159,12 @@ Any uncompleted or unanswered client request has an uncertain outcome.
 
 Repository code embedding `internal/relay.Node` must create a fresh Node after
 Close or a failed Start. Calling Start on the old instance returns
-`node is closed; create a new node to restart` (`ErrNodeClosed`). This is a
-lifecycle-method error, **not a Submit error or an HTTP rejection response**.
+`node is closed; create a new node to restart` (`ErrNodeClosed`). Direct
+`Submit` also returns this error if shutdown is already visible at the
+admission check, even if a peer remains registered during teardown. Validation
+still runs first, and work already past the admission check is not canceled
+by it. The CLI normally drains HTTP before calling Node.Close; a caller that
+retains an embedded transaction handler across Close can receive HTTP 503.
 The CLI has no in-process restart path. See the [single-use lifecycle contract,
 cleanup review and test limits](NODE_LIFECYCLE.md).
 
@@ -215,6 +219,7 @@ broken connection need not produce this application JSON schema.
 | 400 | `invalid JSON request`; `exactly one JSON object is required`; `raw_tx must be 0x-prefixed hex`; `invalid transaction hex` | Fix the request. Do not repeatedly retry identical malformed input. |
 | 400 | Validation rejection, including `raw transaction size must be 1..131072 bytes`, unsupported type, wrong chain/replay protection, gas/value/fee constraints, noncanonical encoding, or `decode signed transaction: ...` / `invalid signature: ...` | Inspect the error and signing/request construction outside this relay. Do not change transaction financial terms automatically. |
 | 503 | `no compatible transaction-receiving peer is ready` | No new cache insertion occurred in this request. Check peer readiness, then use bounded retries only while the transaction is still authorized for broadcast. |
+| 503 | `node is closed; create a new node to restart` | The handler reached a stopping or closed Node before cache admission. Do not retry this instance. |
 | 429 | `too many concurrent requests` | All eight request slots were occupied; this request did not parse or insert a transaction. Reduce caller concurrency. |
 | 429 | `transaction memory cache is full` | New hash cannot fit count or serialized-byte capacity. Both limits share this error. No new entry was inserted. Inspect occupancy and arrival/retention budgets. |
 | 429 | `all peer queues are full; retry later` | No new queue admission succeeded. A fresh cache insertion is rolled back; a previously cached hash remains. A closing session or bounded peer sent-map can also make admission unavailable: this string is not a queue-depth measurement. |

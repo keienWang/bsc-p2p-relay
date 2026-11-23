@@ -1,7 +1,9 @@
 # Single-use Node lifecycle
 
-Status: local lifecycle hardening, **not production readiness**. This change does
-not alter wire messages, transaction admission, HTTP or statistics schemas.
+Status: local lifecycle hardening, **not production readiness**. The initial
+Start/Close ownership change did not alter transaction admission. The current
+contract below includes a later shutdown-only admission guard; wire messages
+and HTTP and statistics schemas are unchanged.
 
 ## Defect and supported behavior
 
@@ -22,6 +24,10 @@ The supported contract is now:
 - A Node is single-use. Start succeeds at most once.
 - Close is terminal and idempotent, even if Start has never been called.
 - Start after Close returns `ErrNodeClosed`; create a fresh Node to restart.
+- After validation, `Submit` returns `ErrNodeClosed` before cache or queue work
+  when shutdown is already visible at its admission check. This does not cancel
+  work past that check. An embedded handler reaching this state returns HTTP
+  503; the CLI normally drains HTTP first.
 - A failed Start is also terminal. Its original startup error is returned, and a
   later Start returns `ErrNodeClosed`. Retrying configuration requires a new Node.
 - A duplicate Start on a running instance returns an error without stopping that

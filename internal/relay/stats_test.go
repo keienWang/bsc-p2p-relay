@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -438,6 +439,43 @@ func TestSubmitCapabilityGatePreservesValidationAndCacheOrder(t *testing.T) {
 		submitRejectedValidation: 1, submitRejectedNoPeers: 2,
 		submitRejectedCacheFull: 1, submitAcceptedNew: 1,
 	})
+}
+
+func TestStoppedNodeRejectsNewAdmissionBeforeCacheOrQueue(t *testing.T) {
+	for _, throughHTTP := range []bool{false, true} {
+		t.Run(strconv.FormatBool(throughHTTP), func(t *testing.T) {
+			n := bareNode(t)
+			p := addFakePeer(n, true, 1)
+			// Reproduce the ordinary ordering of Close: the stop signal is
+			// closed before the transport finishes removing registered peers.
+			// This is only local in-memory state with no writer or listener.
+			close(n.stop)
+			tx := fixtureTx(t, 56, 0, false)
+			raw := rawFixture(t, tx)
+			if got, err := n.Submit(nil); err == nil || errors.Is(err, ErrNodeClosed) || got != (Submission{}) {
+				t.Errorf("validation must still precede shutdown check: %+v %v", got, err)
+			}
+			if throughHTTP {
+				body := fmt.Sprintf(`{"raw_tx":"0x%x"}`, raw)
+				w := statsRequest(n.Handler(), http.MethodPost, "/v1/transactions", body)
+				var result map[string]string
+				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusServiceUnavailable ||
+					len(result) != 1 || result["error"] != ErrNodeClosed.Error() {
+					t.Errorf("stopped HTTP admission status/body: %d %s (%v)", w.Code, w.Body.String(), err)
+				}
+			} else {
+				got, err := n.Submit(raw)
+				if !errors.Is(err, ErrNodeClosed) || got.Hash != tx.Hash() || got.QueuedPeers != 0 {
+					t.Errorf("direct stopped admission: %+v %v", got, err)
+				}
+			}
+			if count, size := n.cache.stats(); count != 0 || size != 0 || len(p.queue) != 0 || len(p.sent) != 0 {
+				t.Errorf("shutdown admission mutated cache or queue: count=%d bytes=%d queued=%d sent=%d",
+					count, size, len(p.queue), len(p.sent))
+			}
+			assertStatsOutcomes(t, n, map[submitOutcome]uint64{submitRejectedValidation: 1, submitOther: 1})
+		})
+	}
 }
 
 func TestStatsSnapshotNeedsNoStateLocks(t *testing.T) {

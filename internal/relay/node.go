@@ -260,6 +260,14 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	defer n.submitMu.Unlock()
 	n.mu.RLock()
 	defer n.mu.RUnlock()
+	// The upstream server can still be removing peers after Close signals
+	// stop. Reject before cache/queue work; this does not cancel a call that
+	// already passed this admission check.
+	select {
+	case <-n.stop:
+		return result, ErrNodeClosed, submitOther
+	default:
+	}
 	// This is the negotiated receive capability, not queue capacity or a
 	// guarantee that the registered session has not begun closing.
 	if n.readyPeers == 0 {

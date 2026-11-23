@@ -130,7 +130,7 @@ func (n *Node) httpHandler(observeOnly bool) http.Handler {
 			result, err := n.Submit(raw)
 			if err != nil {
 				status := 400
-				if errors.Is(err, ErrNoPeers) {
+				if errors.Is(err, ErrNoPeers) || errors.Is(err, ErrNodeClosed) {
 					status = 503
 				}
 				if errors.Is(err, ErrCacheFull) || errors.Is(err, ErrQueuesFull) || errors.Is(err, ErrAdmissionExpired) {
