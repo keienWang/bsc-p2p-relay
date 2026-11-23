@@ -248,6 +248,72 @@ class StatsDeltaTests(unittest.TestCase):
                     self.assertEqual((bad_args.returncode, bad_args.stdout), (2, ""))
                     self.assertNotIn("before snapshot:", bad_args.stderr)
 
+    def test_cli_caps_selected_increases_without_changing_report_semantics(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            after["observed_at"] = "2026-11-19T00:01:00.000000001Z"
+            http, validation = "concurrency_rejected_total", "rejected_validation_total"
+            accepted = "accepted_new_cache_lifetime_total"
+            after["http"][http] = (1 << 64) - 1
+            after["submit"].update({accepted: 1, validation: 2})
+            for filename, payload in (("before.json", before), ("after.json", after)):
+                (root / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+            def run(*args, first="before.json", second="after.json"):
+                return subprocess.run(command + [first, second, *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            option = "--max-counter-increase"
+            zero_budget = "submit.rejected_queue_unavailable_total=0"
+            flags = (option, zero_budget, option, f"http.{http}={after['http'][http]}")
+            ordinary = run()
+            equal = run(*flags, option, f"submit.{validation}=2", "--require-forward-time")
+            exceeded = run(*flags, option, f"submit.{validation}=1")
+            self.assertEqual((equal.returncode, exceeded.returncode), (0, 3))
+            self.assertEqual((equal.stderr, exceeded.stderr), ("", ""))
+            self.assertEqual((equal.stdout, exceeded.stdout), (ordinary.stdout, ordinary.stdout))
+            report = json.loads(equal.stdout)
+            self.assertEqual(report["http_delta"][http], (1 << 64) - 1)
+            self.assertEqual(report["submit_delta"][accepted], 1)  # No budget on this field.
+            above_exact_uint64_limit = run(option, f"http.{http}={(1 << 64) - 2}")
+            self.assertEqual((above_exact_uint64_limit.returncode, above_exact_uint64_limit.stdout),
+                             (3, ordinary.stdout))
+
+            saved = run(option, f"submit.{accepted}=0", "--output", "delta.json")
+            self.assertEqual((saved.returncode, saved.stderr), (3, ""))
+            self.assertEqual((root / "delta.json").read_text(), ordinary.stdout)
+            collision = run(option, f"submit.{accepted}=0", "--output", "delta.json")
+            self.assertEqual((collision.returncode, collision.stdout), (1, ""))
+            self.assertEqual((root / "delta.json").read_text(), ordinary.stdout)
+
+            reversed_order = run(option, zero_budget, "--output", "reversed.json",
+                                 first="after.json", second="before.json")
+            self.assertEqual((reversed_order.returncode, reversed_order.stdout), (1, ""))
+            self.assertIn("counter decreased", reversed_order.stderr)
+            self.assertFalse((root / "reversed.json").exists())
+
+            key = f"http.{http}"
+            invalid_flags = [
+                (option, value) for value in (
+                    key, key + "=", key + "=1=2", "http.typo=1", "http_delta." + http + "=1",
+                    key + "=-1", key + "=+1", key + "= 1", key + "=1.0", key + "=1_0",
+                    key + "=١", key + f"={1 << 64}", key + "=" + "9" * 5000,
+                )
+            ]
+            invalid_flags.extend((
+                (option, key + "=1", option, key + "=2"),
+                (option, key + "=1", "--require-unchanged"),
+                (option, key + "=1", "--require-unchanged-counter", key),
+            ))
+            for invalid in invalid_flags:
+                with self.subTest(args=str(invalid)[:128]):
+                    result = run(*invalid, "--output", "invalid.json", first="missing.json")
+                    self.assertEqual((result.returncode, result.stdout), (2, ""))
+                    self.assertNotIn("before snapshot:", result.stderr)
+                    self.assertFalse((root / "invalid.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

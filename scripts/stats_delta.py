@@ -15,6 +15,19 @@ SELECTABLE_COUNTERS = tuple(sorted(
 ))
 
 
+def parse_counter_budget(value):
+    selector, separator, digits = value.partition("=")
+    if not separator or selector not in SELECTABLE_COUNTERS:
+        raise argparse.ArgumentTypeError("expected an input counter as GROUP.COUNTER=COUNT")
+    if not digits.isascii() or not digits.isdecimal():
+        raise argparse.ArgumentTypeError("counter limit must be an ASCII decimal uint64")
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > 20 or int(digits) > (1 << 64) - 1:
+        raise argparse.ArgumentTypeError("counter limit must be an ASCII decimal uint64")
+    group, field = selector.split(".")
+    return group, field, int(digits)
+
+
 def observed_time_key(stamp):
     """Sort validated v1 UTC timestamps without dropping nanoseconds."""
     seconds, _, fraction = stamp[:-1].partition(".")
@@ -58,7 +71,16 @@ def main(argv=None):
                        help="exit 3 after reporting a valid comparison with any nonzero delta")
     guard.add_argument("--require-unchanged-counter", action="append", choices=SELECTABLE_COUNTERS,
                        metavar="GROUP.COUNTER", help="exit 3 if a selected counter increased; repeatable")
+    guard.add_argument("--max-counter-increase", action="append", type=parse_counter_budget,
+                       metavar="GROUP.COUNTER=COUNT",
+                       help="exit 3 if a selected counter delta exceeds its limit; repeatable")
     args = parser.parse_args(argv)
+    budgets = {}
+    for group, field, limit in args.max_counter_increase or ():
+        key = group, field
+        if key in budgets:
+            parser.error(f"duplicate --max-counter-increase counter: {group}.{field}")
+        budgets[key] = limit
     stage = "before snapshot"
     try:
         before = read_snapshot(args.before)
@@ -84,6 +106,8 @@ def main(argv=None):
         group, field = selector.split(".")
         if result[group + "_delta"][field]:
             return 3
+    if any(result[group + "_delta"][field] > limit for (group, field), limit in budgets.items()):
+        return 3
     return 0
 
 

@@ -252,8 +252,8 @@ python3 scripts/stats_delta.py before.json after.json --require-forward-time
 
 The check compares validated UTC `observed_at` values to nanosecond precision.
 An equal or earlier timestamp exits `1` without a comparison or output file.
-The option can be combined with the unchanged-counter checks; a valid
-comparison with counter growth can still exit `3`. By default, wall-clock
+The option can be combined with the counter assertion options below; a valid
+comparison can still exit `3` when a counter exceeds its limit. By default, wall-clock
 ordering is not enforced. Only enable this check where clock adjustments or
 equal timestamps should invalidate a comparison; it cannot prove request
 order, verify elapsed time, or compute a rate.
@@ -282,10 +282,29 @@ python3 scripts/stats_delta.py before.json after.json \
 Use the group and field names from the input snapshot, not from the delta
 report. This only narrows the exit-`3` check: all counters are validated,
 a decrease in any counter still invalidates the comparison, and the complete
-report is unchanged. The two assertion options cannot be combined. With
-neither option, valid comparisons exit `0` regardless of counter growth.
-Zero sampled deltas do not prove that the relay, peers, or chain were idle;
-only the counters in this schema were checked.
+report is unchanged.
+
+### Bound selected counter increases
+
+If a local test intentionally allows some activity, use repeatable
+`--max-counter-increase GROUP.COUNTER=COUNT` to specify an inclusive limit for
+each selected delta. For example, allow at most one local validation rejection
+but no increase in the HTTP concurrency-refusal counter:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json \
+  --max-counter-increase submit.rejected_validation_total=1 \
+  --max-counter-increase http.concurrency_rejected_total=0
+```
+
+Limits are unsigned 64-bit integers written in ASCII decimal. Equality passes.
+A selected delta above its limit exits `3` after emitting the complete
+comparison or saving it with `--output`. Unselected increases do not trigger
+that exit, but a decrease in **any** counter still makes the comparison invalid.
+Duplicate selectors are usage errors. Use at most one of the three assertion
+modes. Without an assertion mode, valid comparisons exit `0` regardless of
+counter growth. These limits apply to sampled counts, not rates; a quiet sample
+does not prove that the relay, peers, or chain were idle.
 
 ### Readiness scope and polling cost
 
