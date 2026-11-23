@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
@@ -33,8 +34,9 @@ func run() error {
 	flag.StringVar(&cfg.Network, "network", cfg.Network, "mainnet (56) or testnet (97)")
 	flag.StringVar(&cfg.ListenAddr, "p2p", cfg.ListenAddr, "P2P TCP/UDP listen address")
 	api := flag.String("api", "127.0.0.1:8787", "loopback HTTP listen address")
-	var observeOnly bool
+	var observeOnly, checkConfig bool
 	flag.BoolVar(&observeOnly, "observe-only", false, "keep observation endpoints but disable HTTP transaction submission")
+	flag.BoolVar(&checkConfig, "check-config", false, "validate configuration without binding listeners or dialing peers")
 	flag.BoolVar(&cfg.NoDiscovery, "no-discovery", false, "disable discovery; use explicit static peers")
 	flag.IntVar(&cfg.MaxPeers, "max-peers", cfg.MaxPeers, "maximum P2P peers (1..200)")
 	flag.IntVar(&cfg.CacheCount, "cache-count", cfg.CacheCount, "maximum cached transactions")
@@ -48,6 +50,19 @@ func run() error {
 	cfg.Peers = peers
 	if err := relay.LoopbackAddress(*api); err != nil {
 		return fmt.Errorf("validate HTTP API address: %w", err)
+	}
+	if checkConfig {
+		// Check only numeric API ports, without service-name resolution or a bind.
+		if _, err := netip.ParseAddrPort(*api); err != nil {
+			return fmt.Errorf("check HTTP API address (numeric port required): %w", err)
+		}
+		node, err := relay.New(cfg)
+		if err != nil {
+			return fmt.Errorf("configure relay: %w", err)
+		}
+		defer node.Close()
+		_, err = fmt.Fprintln(os.Stdout, "configuration check passed; listeners and peer connectivity were not checked")
+		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -73,6 +73,7 @@ The positional-error message deliberately does not print supplied arguments.
 | `--api` | `127.0.0.1:8787` | Literal loopback IP and port only, for example `127.0.0.1:8787` or `[::1]:8787`. `localhost:8787`, `:8787` and `0.0.0.0:8787` are rejected. |
 | `--no-discovery` | `false` | Disables discovery, not static peer dialing or the P2P listener. |
 | `--observe-only` | `false` | Keeps health, readiness and stats; disables HTTP transaction submission without changing P2P. |
+| `--check-config` | `false` | Check CLI and Node configuration offline; do not start listeners or connect to peers. Requires a numeric API port. |
 | `--max-peers` | `20` | Integer from 1 through 200. This is not a required-ready-peer count. |
 | `--cache-count` | `1024` | Integer at least 1. No additional application maximum is validated. |
 | `--cache-bytes` | `16777216` | Integer at least 131072. Counts serialized transaction bytes, not process RSS. |
@@ -86,6 +87,21 @@ it never substitutes mainnet bootnodes. Increasing peer/cache limits is not a
 capacity fix until the resource and retention budget has been reviewed. There
 are no flags for an RPC URL, wallet key, datadir, persistent node key, queue size,
 metrics exporter, authentication or log level.
+
+## Check configuration without starting
+
+```sh
+./bin/bsc-relay --check-config --network mainnet --api 127.0.0.1:8787
+```
+
+Use this on a candidate launch command before stopping a running relay. A
+successful check exits zero and prints one line. It checks CLI arguments, the
+literal loopback API IP and numeric port (including `:0`), network, peer/cache
+limits, and static peer syntax using the same Node configuration validation as
+startup. It does not bind either listener, resolve peer hostnames, or start
+discovery or dialing. It does not validate the P2P listen address, establish that
+ports are available, or demonstrate peer reachability, readiness or delivery.
+Remove `--check-config` to start normally.
 
 ## Local start, inspection and stop
 

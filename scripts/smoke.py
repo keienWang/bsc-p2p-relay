@@ -147,6 +147,38 @@ def check_cli_rejections(binary, work):
     print("PASS: six CLI positional-argument rejection cases, before Node startup")
 
 
+def check_configuration_cli(binary, work):
+    """Validate the real CLI without allowing it to bind either listener."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        occupied.listen()
+        address = f"127.0.0.1:{occupied.getsockname()[1]}"
+        command = [binary, "--check-config", "--no-discovery", "--api", address, "--p2p", address]
+        cases = (
+            ((), 0, "configuration check passed; listeners and peer connectivity were not checked"),
+            (("--api", "[::1]:0"), 0, "configuration check passed; listeners and peer connectivity were not checked"),
+            (("--api", "127.0.0.1:65536"), 1, "check HTTP API address"),
+            (("--cache-count", "0"), 1, "invalid peer or cache limits"),
+            (("--peer", "invalid"), 1, "invalid peer:"),
+            (("--network", "testnet"), 1, "testnet requires at least one explicit --peer"),
+            (("unexpected-positional",), 1, "unexpected positional arguments"),
+        )
+        for arguments, status, expected in cases:
+            result = subprocess.run(command + list(arguments), cwd=work, stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=5, check=False)
+            require(result.returncode == status,
+                    f"configuration check exit {result.returncode}, want {status}: {result.stderr.strip()}")
+            if status == 0:
+                require(result.stdout.strip() == expected and not result.stderr,
+                        "configuration check did not report offline validation")
+            else:
+                require(not result.stdout and expected in result.stderr,
+                        f"configuration rejection did not report {expected!r}")
+            require("experimental relay started" not in result.stdout + result.stderr,
+                    "configuration check unexpectedly announced startup")
+    print("PASS: offline configuration check and validation errors without listener binds")
+
+
 def check_readiness_cli(api, work, health, *, output=None):
     """Exercise the shipped probe against the real relay, not a mock response."""
     probe = pathlib.Path(__file__).resolve().with_name("probe_readiness.py")
@@ -202,6 +234,7 @@ def main(binary):
     binary = str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
         check_cli_rejections(binary, work)
+        check_configuration_cli(binary, work)
         if list(pathlib.Path(work).iterdir()):
             raise AssertionError("CLI rejection left persistent data files")
     check_observation(binary, observe_only=False)
