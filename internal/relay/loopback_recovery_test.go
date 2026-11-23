@@ -30,6 +30,7 @@ import (
 func TestStaticPeerLoopbackRecovery(t *testing.T) {
 	t.Run("repeated_redial", testRepeatedStaticPeerRedial)
 	t.Run("opt_out_stays_connected", testOptOutStaysConnected)
+	t.Run("close_isolates_live_transport", testCloseIsolatesLiveTransport)
 }
 
 func recoveryNode(t *testing.T, maxPeers int) (*Node, *netutil.Netlist) {
@@ -236,6 +237,70 @@ func testOptOutStaysConnected(t *testing.T) {
 	observe(http.StatusOK, 2, 1)
 	if session(optOut.ID()) != passive {
 		t.Fatal("opted-out session did not remain connected throughout")
+	}
+}
+
+func testCloseIsolatesLiveTransport(t *testing.T) {
+	type pair struct {
+		node    *Node
+		remote  *p2p.Server
+		session *peerSession
+	}
+	startPair := func(label string) pair {
+		t.Helper()
+		n, loopback := recoveryNode(t, 2)
+		remote, peer := startRecoveryFixture(t, n.chain, loopback, false)
+		n.server.StaticNodes = []*enode.Node{peer}
+		if err := n.Start(); err != nil {
+			t.Fatal(err)
+		}
+		// Also stop the owned listener if a regression bypasses Node shutdown.
+		t.Cleanup(n.server.Stop)
+		var session *peerSession
+		awaitRecoveryState(t, label+" static handshake", 10*time.Second, func() bool {
+			n.mu.RLock()
+			session = n.peers[peer.ID()]
+			ready := len(n.peers) == 1 && n.readyPeers == 1
+			n.mu.RUnlock()
+			return ready && session != nil && remote.PeerCount() == 1
+		})
+		return pair{n, remote, session}
+	}
+	closed, kept := startPair("closing"), startPair("kept")
+	address := closed.node.server.ListenAddr
+	closed.node.Close()
+
+	// Readiness is already masked by the stop signal; the listener, remote
+	// connection and exact local session independently prove transport cleanup.
+	assertListenerReleased(t, address)
+	awaitRecoveryState(t, "closed pair transport cleanup", 5*time.Second, func() bool {
+		select {
+		case <-closed.session.done:
+			return closed.node.Health().ConnectedPeers == 0 && closed.remote.PeerCount() == 0
+		default:
+			return false
+		}
+	})
+	assertNodeClosed(t, closed.node)
+
+	kept.node.mu.RLock()
+	sameSession := kept.node.peers[kept.session.peer.ID()] == kept.session
+	kept.node.mu.RUnlock()
+	select {
+	case <-kept.session.done:
+		t.Fatal("unrelated peer session ended when the other relay closed")
+	default:
+	}
+	if h := kept.node.Health(); h.ReadyPeers != 1 || h.ConnectedPeers != 1 ||
+		!sameSession || kept.remote.PeerCount() != 1 {
+		t.Fatalf("unrelated relay lost its original ready session: %+v, same session=%v", h, sameSession)
+	}
+	for _, n := range []*Node{closed.node, kept.node} {
+		h, stats := n.Health(), n.Stats()
+		if h.CachedTransactions != 0 || h.CachedBytes != 0 || h.WrittenMessages != 0 || h.WriteFailures != 0 ||
+			stats.Submit != (SubmitStats{}) || stats.HTTP != (HTTPStats{}) {
+			t.Fatalf("unexpected application activity: health=%+v, stats=%+v", h, stats)
+		}
 	}
 }
 

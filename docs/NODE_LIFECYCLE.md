@@ -43,6 +43,12 @@ The supported contract is now:
   on its own 15-second timeout; this patch does **not** promise that every peer
   goroutine or network write has stopped at that instant.
 
+The tagged loopback suite also closes a relay with a live handshaken TCP/RLPx
+session and checks listener release, exact local session cleanup, and peer
+disconnect. A second independent local relay and its ready session remain
+connected. This uses synthetic chains, no discovery, and no application traffic;
+it covers ordinary shutdown, not the upstream timeout path.
+
 No peer or cache lock is held while acquiring the lifecycle mutex. The maintenance
 loop takes cache, submission and peer locks but never calls Start/Close or acquires
 the lifecycle mutex. Protocol handlers likewise do not acquire it. The review
