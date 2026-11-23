@@ -22,11 +22,21 @@ export RELAY_SOAK=1 RELAY_SOAK_DURATION="${RELAY_SOAK_DURATION:-5s}" RELAY_SOAK_
 } > "$output/environment.txt"
 args=(-count=1 -timeout="${RELAY_SOAK_TIMEOUT:-3m}" -run='^TestSoak(MsgPipe|Quantiles)$' -v)
 if [[ "${RELAY_SOAK_RACE:-0}" == 1 ]]; then args+=(-race); fi
-printf 'Report and complete log: %s\n' "$output"
+printf 'Report and log directory: %s\n' "$output"
 set +e
 go test "${args[@]}" ./internal/relay 2>&1 | tee "$output/test.log"
-status=${PIPESTATUS[0]}
+statuses=("${PIPESTATUS[@]}")
 set -e
+test_status=${statuses[0]}
+log_status=${statuses[1]}
+status=$test_status
+summary_fd=1
+if (( log_status != 0 )); then
+    if (( status == 0 )); then status=$log_status; fi
+    printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
+        "$log_status" "$test_status" >&2
+    summary_fd=2
+fi
 printf '%s\n' "$status" > "$output/exit-code.txt"
-printf 'Exit=%s; artifacts: %s\n' "$status" "$output"
+printf 'Exit=%s; artifacts: %s\n' "$status" "$output" >&"$summary_fd"
 exit "$status"

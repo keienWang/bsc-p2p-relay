@@ -27,13 +27,23 @@ export RELAY_UNIQUE_REPORT="$output/report.json"
   sha256sum internal/relay/unique_capacity*_test.go internal/relay/soak*_test.go scripts/run_unique_capacity.sh
   test ! -r /proc/loadavg || cat /proc/loadavg
 } > "$output/environment.txt"
-printf 'Report and full log: %s\n' "$output"
+printf 'Report and log directory: %s\n' "$output"
 args=(-p=1 -count=1 -timeout="$timeout" -run="$run" -v)
 if [[ "${RELAY_UNIQUE_RACE:-0}" == 1 ]]; then args+=(-race); fi
 set +e
 go test "${args[@]}" ./internal/relay 2>&1 | tee "$output/test.log"
-status=${PIPESTATUS[0]}
+statuses=("${PIPESTATUS[@]}")
 set -e
+test_status=${statuses[0]}
+log_status=${statuses[1]}
+status=$test_status
+summary_fd=1
+if (( log_status != 0 )); then
+    if (( status == 0 )); then status=$log_status; fi
+    printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
+        "$log_status" "$test_status" >&2
+    summary_fd=2
+fi
 printf '%s\n' "$status" > "$output/exit-code.txt"
-printf 'Exit=%s; artifacts: %s\n' "$status" "$output"
+printf 'Exit=%s; artifacts: %s\n' "$status" "$output" >&"$summary_fd"
 exit "$status"

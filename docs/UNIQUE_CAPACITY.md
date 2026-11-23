@@ -265,7 +265,11 @@ therefore appear physically present but not unexpired in that ledger.
 Each run creates a new `/tmp/bsc-relay-unique.*` directory containing
 `environment.txt` (Go, OS, revision, source fingerprints, process settings),
 `report.json` (phases, ledgers, occupancy, transport outcomes, measured intervals),
-`test.log` (complete stdout/stderr including failures) and `exit-code.txt`.
+`test.log` (combined test stdout/stderr) and, when writable,
+`exit-code.txt` (final wrapper status). Log capture failure reports both pipeline
+statuses on stderr. A nonzero Go process status takes precedence (it may reflect
+a broken pipe, not a test assertion failure); otherwise the log status is used.
+Do not count a partial log as a clean run.
 Reports use exclusive creation. Early failures still finalize scenario evidence;
 a process kill/global Go timeout can prevent JSON cleanup, so missing JSON is
 never success. Keep the full log and nonzero exit code. The only finite-stream

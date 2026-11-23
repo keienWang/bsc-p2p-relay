@@ -12,10 +12,14 @@ new evidence](SOAK_HTTP_VALIDATION.md).
 Use Go 1.26.11 and the repository's pinned BSC v1.8.2 dependencies, downloaded
 before the run. The script uses `GOTOOLCHAIN=local`, `GOPROXY=off`, a shared
 `flock`, and GOMAXPROCS=2 by default. It starts at most one load process and
-preserves environment metadata, a JSON report, the full log, and exit code in a
-new temporary directory. A report is created exclusively, never overwritten.
-A process kill or Go timeout may prevent JSON cleanup output; retain the full
-log and nonzero exit code instead of interpreting a missing report as success.
+writes environment metadata, a JSON report, the test log, and, if writable,
+the final wrapper status to a new temporary directory. A report is created
+exclusively, never overwritten. If log capture fails, stderr reports both
+pipeline statuses, and the wrapper uses the nonzero log status if Go returned
+zero. Otherwise Go's process status takes precedence; with a broken pipeline
+that status is not necessarily a test assertion failure. Do not treat a
+partial log as complete evidence. A process kill or Go timeout may also prevent
+JSON cleanup output; missing JSON is not success.
 
 ```sh
 ./scripts/run_relay_soak.sh
