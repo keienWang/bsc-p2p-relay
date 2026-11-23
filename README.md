@@ -115,7 +115,7 @@ Returns process health and relay metrics. Health does not establish network deli
 
 ### GET /readyz
 
-Reports whether peers are ready for relay transport. Readiness does not prove peer honesty, chain synchronization, or transaction acceptance.
+Returns HTTP 200 if the snapshot reports a receive-capable peer, or 503 otherwise. Once the snapshot observes Node shutdown, it reports zero ready peers even if some sessions are still registered. Readiness does not prove peer honesty, chain synchronization, or transaction acceptance.
 
 ### GET /v1/stats
 

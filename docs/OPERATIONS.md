@@ -282,9 +282,10 @@ between `/readyz` and submit. An already cached transaction can receive 503 or
    diagnostics and authorized peer-side diagnostics; do not claim the aggregate
    counters identify a cause they cannot expose.
 4. Positive `connected_peers` with zero `ready_peers` can mean all sessions opted
-   out of transaction broadcast through UpgradeStatus. A handshake alone is not
-   willingness to receive transactions. Review the permitted peer configuration
-   with its owner, rather than treating the peer as faulty or trustworthy.
+   out of transaction broadcast through UpgradeStatus, or that Node shutdown is
+   in progress and sessions have not yet deregistered. The CLI normally drains
+   HTTP first. Check lifecycle events before examining permitted peer
+   configuration; a handshake alone does not imply readiness.
 5. A rising `write_failures` counter means a writer send failed and that session
    is disconnected. It does not reveal which transaction was accepted elsewhere.
    Stop aggressive retries, inspect caller status/error distributions and resource
@@ -338,7 +339,7 @@ no nonempty Origin. The object has exactly these current fields:
 | --- | --- |
 | `network` | Selected `mainnet` or `testnet`. |
 | `chain_id` | String `"56"` or `"97"`, not a JSON number. |
-| `ready_peers` | Handshaken sessions that advertise receiving transactions. |
+| `ready_peers` | Handshaken sessions that advertise receiving transactions; zero if the snapshot observes Node shutdown. |
 | `connected_peers` | Sessions registered after the dual handshake, including opt-out sessions. |
 | `cached_transactions` | Live cached hash count after a prune at observation time. |
 | `cached_bytes` | Serialized size total for those live entries; not RSS. |

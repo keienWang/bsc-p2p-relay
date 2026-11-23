@@ -28,6 +28,10 @@ The supported contract is now:
   when shutdown is already visible at its admission check. This does not cancel
   work past that check. An embedded handler reaching this state returns HTTP
   503; the CLI normally drains HTTP first.
+- Health snapshots that observe shutdown report zero ready peers even while
+  handshaken sessions are still registered. An embedded handler then returns
+  503 for `/readyz` but still returns 200 for `/healthz` if the request
+  completes. The connected count continues to track actual deregistration.
 - A failed Start is also terminal. Its original startup error is returned, and a
   later Start returns `ErrNodeClosed`. Retrying configuration requires a new Node.
 - A duplicate Start on a running instance returns an error without stopping that

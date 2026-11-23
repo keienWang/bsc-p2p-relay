@@ -237,6 +237,15 @@ func (n *Node) removePeerLocked(id enode.ID, session *peerSession) {
 func (n *Node) Health() Health {
 	n.mu.RLock()
 	ready, connected := n.readyPeers, len(n.peers)
+	// Shutdown stops new admissions before transport deregisters sessions.
+	// Mask the observation, not the raw count used by peer cleanup.
+	if ready != 0 {
+		select {
+		case <-n.stop:
+			ready = 0
+		default:
+		}
+	}
 	n.mu.RUnlock()
 	count, bytes := n.cache.stats()
 	return Health{n.cfg.Network, n.chain.chainIDText, ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}

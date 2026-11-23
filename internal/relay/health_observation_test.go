@@ -71,6 +71,64 @@ func TestHealthReadinessCapabilityAndCapacity(t *testing.T) {
 	}
 }
 
+func TestHealthStopsReportingReadyBeforePeerCleanup(t *testing.T) {
+	n := protocolNode(t)
+	t.Cleanup(n.Close)
+	// Register bookkeeping-only sessions without starting a listener. Close
+	// signals shutdown, but there are no protocol goroutines to remove these
+	// sessions. This makes the stop-before-deregistration window deterministic.
+	receivingID, optedOutID := enode.ID{1}, enode.ID{2}
+	receiving, optedOut := &peerSession{receiveTx: true}, &peerSession{}
+	n.mu.Lock()
+	n.setPeerLocked(receivingID, receiving)
+	n.setPeerLocked(optedOutID, optedOut)
+	n.mu.Unlock()
+	handlers := []http.Handler{n.Handler(), n.ObservationHandler()}
+	check := func(phase string, ready, connected int) {
+		t.Helper()
+		if h := n.Health(); h.ReadyPeers != ready || h.ConnectedPeers != connected {
+			t.Errorf("%s direct Health = %d/%d ready/connected; want %d/%d", phase, h.ReadyPeers, h.ConnectedPeers, ready, connected)
+		}
+		for i, handler := range handlers {
+			for _, path := range []string{"/healthz", "/readyz"} {
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
+				want := http.StatusOK
+				if path == "/readyz" && ready == 0 {
+					want = http.StatusServiceUnavailable
+				}
+				var h Health
+				if err := json.Unmarshal(w.Body.Bytes(), &h); err != nil {
+					t.Fatal(err)
+				}
+				if w.Code != want || h.ReadyPeers != ready || h.ConnectedPeers != connected {
+					t.Errorf("%s handler %d %s = status %d, %d/%d ready/connected; want %d, %d/%d", phase, i, path, w.Code, h.ReadyPeers, h.ConnectedPeers, want, ready, connected)
+				}
+			}
+		}
+	}
+
+	check("before stop", 1, 2)
+	n.Close()
+	check("after stop, before cleanup", 0, 2)
+	n.mu.Lock()
+	rawBeforeCleanup := n.readyPeers
+	n.removePeerLocked(receivingID, receiving)
+	n.mu.Unlock()
+	if rawBeforeCleanup != 1 {
+		t.Fatal("observation mutated the negotiated session count")
+	}
+	check("after receiving-session cleanup", 0, 1)
+	n.mu.Lock()
+	n.removePeerLocked(optedOutID, optedOut)
+	rawAfterCleanup := n.readyPeers
+	n.mu.Unlock()
+	check("after all cleanup", 0, 0)
+	if rawAfterCleanup != 0 {
+		t.Fatal("cleanup did not balance the negotiated session count")
+	}
+}
+
 func TestHealthTracksExactPeerSessionThroughReplacement(t *testing.T) {
 	n := loadNode(t, 1, 0, 1)
 	id, otherID := enode.ID{1}, enode.ID{2}

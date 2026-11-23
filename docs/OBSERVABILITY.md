@@ -289,13 +289,17 @@ only the counters in this schema were checked.
 
 ### Readiness scope and polling cost
 
-`/readyz` reports whether any connected session negotiated transaction receive
-capability. It can remain HTTP 200 with a full local cache or full outgoing
-queue: it is not an admission-capacity check, remote acceptance, or confirmation.
-`/healthz` remains HTTP 200 when no such session exists. Both handler modes use
-this same rule. `TestHealthReadinessCapabilityAndCapacity` guards these semantics
-across capability transitions with full synthetic cache/queue fixtures and
-verifies polling does not submit work or drain queues.
+`/readyz` reports whether any registered session negotiated transaction receive
+capability and the health snapshot has not observed Node shutdown. Once shutdown
+is observed, it returns HTTP 503 with zero `ready_peers` even if some sessions
+are still registered; `connected_peers` continues to report them until cleanup.
+Otherwise the endpoint can remain HTTP 200 with a full local cache or full
+outgoing queue: it is not an admission-capacity check, remote acceptance, or
+confirmation. `/healthz` still returns HTTP 200 if its handler completes. Both
+handler modes use this same rule. `TestHealthReadinessCapabilityAndCapacity`
+covers negotiation with full cache/queue fixtures and verifies polling does not
+submit work or drain queues. `TestHealthStopsReportingReadyBeforePeerCleanup`
+covers the interval after shutdown when sessions are still registered.
 
 For a one-shot local readiness check with distinct shell exit statuses:
 
@@ -337,8 +341,8 @@ go test -ldflags=-extldflags=-Wl,-z,noexecstack ./internal/relay \
 ```
 
 Unlike `Stats()`, `Health()` takes peer/cache locks and prunes expired cache
-entries. It reads the connected and receive-capable peer counts together under
-the peer read lock; session registration and removal maintain the ready count
+entries. It reads both peer counts and checks shutdown when needed under the peer
+read lock. Session registration and removal maintain the negotiated count
 without scanning the peer map on each observation. Empty-cache health reads
 skip the clock and expiry check while still taking the same cache lock.
 Nonempty reads retain the expiry check. The
