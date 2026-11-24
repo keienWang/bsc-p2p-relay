@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -56,6 +57,9 @@ func run() error {
 		if _, err := netip.ParseAddrPort(*api); err != nil {
 			return fmt.Errorf("check HTTP API address (numeric port required): %w", err)
 		}
+		if err := checkP2PListenAddress(cfg.ListenAddr); err != nil {
+			return fmt.Errorf("check P2P listen address: %w", err)
+		}
 		node, err := relay.New(cfg)
 		if err != nil {
 			return fmt.Errorf("configure relay: %w", err)
@@ -67,6 +71,36 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runRelay(ctx, stop, cfg, *api, observeOnly)
+}
+
+// Check only P2P address structure and numeric port bounds. Startup remains
+// responsible for resolving any host or service names and opening listeners.
+func checkP2PListenAddress(address string) error {
+	if address == "" {
+		return nil // No configured P2P TCP listener.
+	}
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	digits, negative := port, false
+	if len(digits) != 0 && (digits[0] == '+' || digits[0] == '-') {
+		negative = digits[0] == '-'
+		digits = digits[1:]
+	}
+	if digits == "" {
+		return nil // net accepts an empty port as port 0.
+	}
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return nil // A possible service name; do not resolve it offline.
+		}
+	}
+	number, err := strconv.ParseUint(digits, 10, 16)
+	if err != nil || (negative && number != 0) {
+		return errors.New("P2P numeric port must be 0..65535")
+	}
+	return nil
 }
 
 func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool) error {

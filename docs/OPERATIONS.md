@@ -96,11 +96,12 @@ metrics exporter, authentication or log level.
 
 Use this on a candidate launch command before stopping a running relay. A
 successful check exits zero and prints one line. It checks CLI arguments, the
-literal loopback API IP and numeric port (including `:0`), network, peer/cache
-limits, and static peer syntax using the same Node configuration validation as
-startup. It does not bind either listener, resolve peer hostnames, or start
-discovery or dialing. It does not validate the P2P listen address, establish that
-ports are available, or demonstrate peer reachability, readiness or delivery.
+literal loopback API IP and numeric port (including `:0`), the shape of a
+nonempty P2P listen address and any numeric P2P port's range, network, peer/cache
+limits, and static peer syntax. Node validation is shared with startup. An
+empty P2P listen address remains allowed. The check does not resolve host or
+service names, bind either listener, or start discovery or dialing. It cannot
+establish port availability, peer reachability, readiness or delivery.
 Remove `--check-config` to start normally.
 
 ## Local start, inspection and stop
