@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 import capture_stats
+import probe_readiness
 from test_stats_delta import sample
 
 
@@ -23,12 +24,44 @@ class CaptureStatsTests(unittest.TestCase):
     def test_literal_loopback_only(self):
         self.assertEqual(capture_stats.loopback_base("127.0.0.1:8787"), "http://127.0.0.1:8787")
         self.assertEqual(capture_stats.loopback_base("[::1]:8787"), "http://[::1]:8787")
+        self.assertEqual(capture_stats.loopback_base("127.0.0.2:00001"), "http://127.0.0.2:1")
+        self.assertEqual(capture_stats.loopback_base("[0:0:0:0:0:0:0:1]:65535"), "http://[::1]:65535")
         for address in ("localhost:8787", "example.com:80", "192.0.2.1:80", "0.0.0.0:80", "[::]:80",
                         "127.0.0.1", "127.0.0.1:0", "127.0.0.1:65536", "user@127.0.0.1:80",
                         "127.0.0.1:80/", "127.0.0.1:80?q=1", "127.0.0.1:80#x", "[::1%lo]:80",
                         "https://127.0.0.1:80"):
             with self.subTest(address=address), self.assertRaises(ValueError):
                 capture_stats.loopback_base(address)
+
+    def test_literal_address_is_not_normalized_as_a_url(self):
+        for address in (
+            "127.0.0.1:8787?", "127.0.0.1:8787#", "127.0.0.1:87\t87",
+            "127.0.0.1:8787\n", "127.0.0.1\r:8787", "[::1]extra:8787",
+            "127.0.0.1:+8787", "127.0.0.1:８７８７", "127.0.0.1:8787 ",
+            "[127.0.0.1]:8787", "::1:8787", "[::1]:+8787", "127.0.0.1:" + "9" * 100,
+        ):
+            with self.subTest(address=address), self.assertRaisesRegex(ValueError, "literal loopback IP and port"):
+                capture_stats.loopback_base(address)
+
+    def test_both_cli_entry_points_reject_nonliteral_addresses_before_http(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for main, options, message in (
+                (capture_stats.main, [str(root / "stats.json")], "statistics capture failed:"),
+                (probe_readiness.main, ["--output", str(root / "ready.json")], "readiness unavailable:"),
+            ):
+                for address in ("127.0.0.1:8787?", "127.0.0.1:87\t87"):
+                    with self.subTest(main=main.__module__, address=address):
+                        out, err = io.StringIO(), io.StringIO()
+                        with (mock.patch("capture_stats.urllib.request.build_opener",
+                                         side_effect=AssertionError("fixture forbids HTTP")) as opener,
+                              contextlib.redirect_stdout(out), contextlib.redirect_stderr(err)):
+                            code = main([address, *options])
+                        opener.assert_not_called()
+                        self.assertEqual((code, out.getvalue()), (1, ""))
+                        self.assertIn(message, err.getvalue())
+                        self.assertIn("literal loopback IP and port", err.getvalue())
+                        self.assertEqual(list(root.iterdir()), [])
 
     def test_atomic_new_file_and_baseline_preservation(self):
         with tempfile.TemporaryDirectory() as directory:

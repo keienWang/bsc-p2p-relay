@@ -14,7 +14,6 @@ import stat
 import sys
 import tempfile
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from smoke import MAX_STATS_RESPONSE_BYTES, decode_stats, read_stats
@@ -26,15 +25,26 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def loopback_base(address):
-    parsed = urllib.parse.urlsplit("http://" + address)
-    if (parsed.username is not None or parsed.password is not None or parsed.path
-            or parsed.query or parsed.fragment or not parsed.hostname or "%" in address):
-        raise ValueError("API must be a literal loopback IP and port, without URL components")
-    host = ipaddress.ip_address(parsed.hostname)
-    if not host.is_loopback or parsed.port is None or not 1 <= parsed.port <= 65535:
-        raise ValueError("API must be a literal loopback IP and port")
+    # Parse the literal argument before constructing a URL. A URL parser can
+    # silently strip control characters or accept empty query/fragment syntax.
+    error = "API must be a literal loopback IP and port"
+    host_text, separator, port_text = address.rpartition(":")
+    if not separator or "%" in host_text or not port_text.isascii() or not port_text.isdecimal():
+        raise ValueError(error)
+    digits = port_text.lstrip("0")
+    if not digits or len(digits) > 5 or (port := int(digits)) > 65535:
+        raise ValueError(error)
+    try:
+        if host_text.startswith("[") and host_text.endswith("]"):
+            host = ipaddress.IPv6Address(host_text[1:-1])
+        else:
+            host = ipaddress.IPv4Address(host_text)
+    except ipaddress.AddressValueError as exc:
+        raise ValueError(error) from exc
+    if not host.is_loopback:
+        raise ValueError(error)
     canonical = f"[{host}]" if host.version == 6 else str(host)
-    return f"http://{canonical}:{parsed.port}"
+    return f"http://{canonical}:{port}"
 
 
 def read_snapshot(path):

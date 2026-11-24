@@ -162,8 +162,11 @@ python3 scripts/capture_stats.py 127.0.0.1:8787 after.json
 python3 scripts/stats_delta.py before.json after.json
 ```
 
-Only literal loopback IPs with explicit ports are accepted (`[::1]:8787` works);
-hostnames, public addresses, URL paths, credentials and query strings are rejected.
+Both the collector and readiness probe accept only a literal loopback IPv4
+address or bracketed IPv6 address with an explicit ASCII decimal port from 1
+to 65535, such as `127.0.0.1:8787` or `[::1]:8787`. Hostnames, public addresses,
+whitespace, IPv6 zone identifiers and URL components are rejected before any
+request. Even an empty query or fragment delimiter is not an endpoint literal.
 The collector makes one GET to `/v1/stats`, ignores environment HTTP proxies and
 does not follow redirects. It reuses the smoke reader's status/header/schema,
 framing and 16 KiB response checks, with its two-second socket idle timeout.
