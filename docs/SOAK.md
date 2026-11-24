@@ -18,8 +18,11 @@ exclusively, never overwritten. If log capture fails, stderr reports both
 pipeline statuses, and the wrapper uses the nonzero log status if Go returned
 zero. Otherwise Go's process status takes precedence; with a broken pipeline
 that status is not necessarily a test assertion failure. Do not treat a
-partial log as complete evidence. A process kill or Go timeout may also prevent
-JSON cleanup output; missing JSON is not success.
+partial log as complete evidence. If Go and log capture both succeed, the
+wrapper still requires a nonempty regular `report.json` (not a symlink).
+This checks the artifact's presence and type, not its JSON contents. A process
+kill or Go timeout may prevent report cleanup output; keep any partial evidence
+and the original nonzero status when available.
 
 ```sh
 ./scripts/run_relay_soak.sh

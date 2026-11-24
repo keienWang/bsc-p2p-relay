@@ -270,9 +270,11 @@ Each run creates a new `/tmp/bsc-relay-unique.*` directory containing
 statuses on stderr. A nonzero Go process status takes precedence (it may reflect
 a broken pipe, not a test assertion failure); otherwise the log status is used.
 Do not count a partial log as a clean run.
-Reports use exclusive creation. Early failures still finalize scenario evidence;
-a process kill/global Go timeout can prevent JSON cleanup, so missing JSON is
-never success. Keep the full log and nonzero exit code. The only finite-stream
+Reports use exclusive creation. After a successful Go run and log capture, the
+wrapper requires a nonempty regular `report.json` (not a symlink); it does not
+parse the JSON. Early failures still finalize scenario evidence when possible.
+A process kill/global Go timeout can prevent report cleanup output. Keep the
+full log and the original nonzero status when available. The only finite-stream
 rate denominator is its actual measured interval, excluding fixture setup and
 teardown; the report also records total scenario elapsed time separately.
 

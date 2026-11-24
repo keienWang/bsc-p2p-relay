@@ -43,6 +43,11 @@ if (( log_status != 0 )); then
     printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
         "$log_status" "$test_status" >&2
     summary_fd=2
+elif (( status == 0 )) && [[ ! -f "$output/report.json" || -L "$output/report.json" || ! -s "$output/report.json" ]]; then
+    # go test can return zero after running no report-producing test.
+    status=1
+    printf 'ERROR: required report.json is missing, empty, or not a regular non-symlink file\n' >&2
+    summary_fd=2
 fi
 printf '%s\n' "$status" > "$output/exit-code.txt"
 printf 'Exit=%s; artifacts: %s\n' "$status" "$output" >&"$summary_fd"
