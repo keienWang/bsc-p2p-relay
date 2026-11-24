@@ -186,8 +186,8 @@ func (n *Node) Start() error {
 	return nil
 }
 
-// Close is idempotent and terminal, including before Start. It waits for local
-// maintenance and delegates transport shutdown to the upstream P2P server.
+// Close is idempotent and terminal, including before Start. It delegates
+// transport shutdown, waits for local maintenance, and releases the cache.
 func (n *Node) Close() {
 	n.lifecycleMu.Lock()
 	defer n.lifecycleMu.Unlock()
@@ -207,6 +207,11 @@ func (n *Node) closeLocked() {
 	if n.maintenanceDone != nil {
 		<-n.maintenanceDone
 	}
+	// An admission already past its stop check can still touch the cache.
+	// Wait for it before dropping storage; later admissions see n.stop.
+	n.submitMu.Lock()
+	n.cache.release()
+	n.submitMu.Unlock()
 }
 func (n *Node) Enode() string { return n.server.Self().URLv4() }
 

@@ -189,7 +189,9 @@ admission check, even if a peer remains registered during teardown. Validation
 still runs first, and work already past the admission check is not canceled
 by it. The CLI normally drains HTTP before calling Node.Close; a caller that
 retains an embedded transaction handler across Close can receive HTTP 503.
-The CLI has no in-process restart path. See the [single-use lifecycle contract,
+After Close returns, a fresh health observation reports an empty transaction
+cache; instance statistics are still readable. This is memory cleanup, not
+delivery or persistence. The CLI has no in-process restart path. See the [single-use lifecycle contract,
 cleanup review and test limits](NODE_LIFECYCLE.md).
 
 ## HTTP contract and client decisions

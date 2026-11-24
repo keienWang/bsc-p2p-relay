@@ -95,6 +95,17 @@ func (s *store) removeLocked(e *cacheEntry) {
 	}
 }
 
+// release drops the in-memory cache backing once admission has stopped.
+// Locked reads and pruning still observe an empty store.
+func (s *store) release() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = nil
+	s.expiries = nil
+	s.bytes = 0
+	s.expiryUpperBound = time.Time{}
+}
+
 func (s *store) prune(now time.Time) { s.mu.Lock(); defer s.mu.Unlock(); s.pruneLocked(now) }
 func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
 	s.mu.Lock()

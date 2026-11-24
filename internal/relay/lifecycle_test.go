@@ -74,6 +74,60 @@ func TestNodeCloseAfterStartIsTerminal(t *testing.T) {
 	assertListenerReleased(t, address)
 }
 
+func TestNodeCloseReleasesLocalTransactionCache(t *testing.T) {
+	for _, mode := range []string{"before_start", "after_start"} {
+		t.Run(mode, func(t *testing.T) {
+			n := protocolNode(t)
+			t.Cleanup(n.Close)
+			if mode == "after_start" {
+				n.server.NoDial = true
+				if err := n.Start(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Submit only to an in-process synthetic queue with no writer.
+			n.mu.Lock()
+			p := addFakePeer(n, true, 1)
+			n.mu.Unlock()
+			tx := fixtureTx(t, 56, 1, false)
+			raw := rawFixture(t, tx)
+			result, err := n.Submit(raw)
+			if err != nil || result.QueuedPeers != 1 {
+				t.Fatalf("local fixture admission = %+v, %v", result, err)
+			}
+			<-p.queue
+			before := n.Health()
+			if before.CachedTransactions != 1 || before.CachedBytes != int(tx.Size()) {
+				t.Fatalf("fixture cache = %+v", before)
+			}
+			identity := n.Stats().InstanceID
+
+			n.Close()
+			n.Close()
+			after := n.Health()
+			if after.CachedTransactions != 0 || after.CachedBytes != 0 {
+				t.Fatalf("terminal Node still reports cached contents: %+v", after)
+			}
+			n.cache.mu.Lock()
+			retainedBacking := n.cache.entries != nil || n.cache.expiries != nil || !n.cache.expiryUpperBound.IsZero()
+			n.cache.mu.Unlock()
+			if retainedBacking {
+				t.Fatal("terminal cache kept the map, heap backing or expiry bound")
+			}
+			stats := n.Stats()
+			if stats.InstanceID != identity || stats.Submit.AcceptedNewCacheLifetimeTotal != 1 {
+				t.Fatalf("closing cleared observation history: %+v", stats)
+			}
+			if _, err := n.Submit(raw); !errors.Is(err, ErrNodeClosed) {
+				t.Fatalf("Submit after terminal cache release = %v, want ErrNodeClosed", err)
+			}
+			if len(p.queue) != 0 || n.Health().CachedTransactions != 0 {
+				t.Fatal("submission after Close re-populated local state")
+			}
+		})
+	}
+}
+
 func TestNodeIdleMaintenanceRunsAcrossSuccessiveTicks(t *testing.T) {
 	n := protocolNode(t)
 	t.Cleanup(n.Close)

@@ -36,9 +36,12 @@ The supported contract is now:
   later Start returns `ErrNodeClosed`. Retrying configuration requires a new Node.
 - A duplicate Start on a running instance returns an error without stopping that
   instance or replacing its maintenance worker.
-- Start and Close serialize on a separate lifecycle mutex. Close waits for this
-  node's maintenance goroutine before returning. Concurrent Close callers wait
-  for the same serialized shutdown.
+- Start and Close serialize on a separate lifecycle mutex. Close waits for
+  local maintenance and any admission already past the stop check, then releases
+  the in-memory transaction cache, including its backing map and heap. A new
+  Health snapshot after Close has zero cached count and bytes; statistics
+  counters and the instance identity remain readable. Concurrent Close callers
+  wait for the same serialized shutdown.
 - Transport shutdown still uses the pinned upstream server. Its Stop can return
   on its own 15-second timeout; this patch does **not** promise that every peer
   goroutine or network write has stopped at that instant.
