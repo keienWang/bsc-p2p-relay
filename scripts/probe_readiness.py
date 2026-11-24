@@ -6,6 +6,7 @@ import http.client
 import json
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -15,6 +16,8 @@ from smoke import read_observation_body, unique_object
 
 CHAIN_IDS = {"mainnet": "56", "testnet": "97"}
 MAX_PEERS = 200
+MAX_ATTEMPTS = 20
+RETRY_DELAY_SECONDS = 0.25
 OCCUPANCY_FIELDS = {"cached_transactions", "cached_bytes"}
 PEER_FIELDS = {"ready_peers", "connected_peers"}
 WRITE_FIELDS = {"written_messages", "write_failures"}
@@ -67,6 +70,16 @@ def parse_min_ready_peers(value):
     return count
 
 
+def parse_attempts(value):
+    try:
+        count = int(value)
+    except ValueError:
+        count = 0
+    if not 1 <= count <= MAX_ATTEMPTS:
+        raise argparse.ArgumentTypeError(f"attempts must be an integer from 1 to {MAX_ATTEMPTS}")
+    return count
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("api", help="literal loopback IP:port, e.g. 127.0.0.1:8787 or [::1]:8787")
@@ -76,15 +89,26 @@ def main(argv=None):
                         help=f"minimum ready peers for exit 0 (1 to {MAX_PEERS}, default 1)")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
+    parser.add_argument("--attempts", type=parse_attempts, default=1, metavar="COUNT",
+                        help=f"at most {MAX_ATTEMPTS} GETs; more than one requires --fetch-deadline")
     parser.add_argument("--output", type=pathlib.Path, metavar="FILE",
                         help="save the validated observation to a new file instead of stdout")
     args = parser.parse_args(argv)
+    if args.attempts > 1 and args.fetch_deadline is None:
+        parser.error("--attempts above 1 requires --fetch-deadline")
     try:
         if args.output is not None:
             check_capture_destination(args.output)
-        result = probe(args.api, args.fetch_deadline)
-        if args.expect_network is not None and result["network"] != args.expect_network:
-            raise ValueError(f"network mismatch: expected {args.expect_network}, reported {result['network']}")
+        expected_network = args.expect_network
+        for attempt in range(1, args.attempts + 1):
+            result = probe(args.api, args.fetch_deadline)
+            if expected_network is None:
+                expected_network = result["network"]
+            elif result["network"] != expected_network:
+                raise ValueError(f"network mismatch: expected {expected_network}, reported {result['network']}")
+            if result["ready_peers"] >= args.min_ready_peers or attempt == args.attempts:
+                break
+            time.sleep(RETRY_DELAY_SECONDS)
         if args.output is not None:
             save_new_snapshot(args.output, result)
     except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:

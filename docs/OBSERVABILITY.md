@@ -329,7 +329,7 @@ For a one-shot local readiness check with distinct shell exit statuses:
 python3 scripts/probe_readiness.py 127.0.0.1:8787 --expect-network mainnet --fetch-deadline 5
 ```
 
-This sends one GET to `/readyz` at a literal loopback address. It prints the
+By default this sends one GET to `/readyz` at a literal loopback address. It prints the
 validated health JSON and exits `0` if at least one receive-capable session is
 present by default, or `3` if a valid observation falls below the minimum.
 Use `--min-ready-peers 2` to require more than one session (allowed: 1 to 200).
@@ -345,6 +345,18 @@ Without this option, either internally consistent network/chain ID pair is
 accepted. This checks reported configuration only, not chain identity on the
 wire. Invalid arguments exit `2`. The optional POSIX deadline works like the
 collector's; without it, the two-second socket idle timeout remains in effect.
+
+For a short local recovery window, use `--attempts 5 --fetch-deadline 2`.
+The attempt count includes the first GET (1–20, default 1). More than one
+attempt requires the POSIX per-fetch deadline. The CLI waits 250 ms only
+after a valid observation below the configured minimum, including valid HTTP
+503 or HTTP 200 below that threshold. It stops immediately on a satisfactory
+sample (exit `0`), an unavailable or invalid response (exit `1` without falling
+back to a prior sample), or an exhausted sequence of valid low samples (exit
+`3`). A mismatch against `--expect-network` (or against the first validated
+network when no network was specified) is invalid on any attempt. Only the final
+valid sample is reported, never intermediate samples. The deadline applies per GET,
+not to local file operations; this is not a continuous monitor.
 
 To preserve a snapshot without truncating a prior file through shell
 redirection, use a new filename:

@@ -2,6 +2,7 @@
 import json
 import pathlib
 import queue
+import signal
 import subprocess
 import sys
 import tempfile
@@ -139,6 +140,8 @@ class ProbeReadinessTest(unittest.TestCase):
                         self.assertIn("integer from 1 to 200", result.stderr)
                 self.assertEqual(paths, ["/readyz"] * len(thresholds))
                 self.assert_saved_observations(command, responses, paths, ready, zero)
+                if hasattr(signal, "setitimer"):
+                    self.assert_retry_observations(command, responses, paths, ready, zero)
             finally:
                 server.shutdown()
                 thread.join(timeout=5)
@@ -190,6 +193,65 @@ class ProbeReadinessTest(unittest.TestCase):
             self.assertEqual(raced.read_bytes(), b"concurrent result")
             self.assertEqual(list(root.glob(".relay-stats-*")), [])
             self.assertEqual(paths, ["/readyz"])
+
+    def assert_retry_observations(self, command, responses, paths, ready, zero):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            enough = dict(ready, ready_peers=2)
+            later_unready = dict(zero, connected_peers=3)
+            other_network = dict(enough, network="testnet", chain_id="97")
+
+            def run(*options):
+                return subprocess.run(command + list(options), cwd=root, capture_output=True,
+                                      text=True, timeout=5, check=False)
+
+            def add(status, payload, *callbacks):
+                responses.put((status, json.dumps(payload).encode(), *callbacks))
+
+            paths.clear()
+            invalid = run("--attempts", "2", "--output", "no-deadline.json")
+            self.assertEqual((invalid.returncode, invalid.stdout, paths), (2, "", []))
+            self.assertIn("--fetch-deadline", invalid.stderr)
+            self.assertFalse((root / "no-deadline.json").exists())
+            for tries in ("0", "21", "1.5"):
+                invalid = run("--attempts", tries, "--fetch-deadline", "1")
+                self.assertEqual((invalid.returncode, invalid.stdout, paths), (2, "", []))
+
+            add(200, enough)
+            satisfied = run("--attempts", "3", "--fetch-deadline", "1", "--min-ready-peers", "2")
+            self.assertEqual((satisfied.returncode, satisfied.stderr, paths), (0, "", ["/readyz"]))
+            self.assertEqual(json.loads(satisfied.stdout), enough)
+
+            for final, code, name in (
+                ((200, enough), 0, "recovered.json"),
+                ((503, later_unready), 3, "still-unready.json"),
+                ((503, {"error": "not readiness"}), 1, "malformed.json"),
+                ((200, other_network), 1, "wrong-network.json"),
+                ((200, other_network), 1, "changed-network.json"),
+                ((404, zero), 1, "unavailable.json"),
+            ):
+                with self.subTest(name=name):
+                    paths.clear()
+                    target = root / name
+                    published_early = []
+                    # For the recovery case HTTP 200 is valid but below the
+                    # local threshold. The others really begin with HTTP 503.
+                    if code == 0:
+                        add(200, ready)
+                    else:
+                        add(503, zero)
+                    add(*final, lambda: published_early.append(target.exists()))
+                    network = () if name == "changed-network.json" else ("--expect-network", "mainnet")
+                    result = run("--attempts", "2" if code != 1 else "3", "--fetch-deadline", "1",
+                                 "--min-ready-peers", "2", "--output", name, *network)
+                    self.assertEqual((result.returncode, result.stdout), (code, ""), result.stderr)
+                    self.assertEqual((paths, published_early), (["/readyz"] * 2, [False]))
+                    if code == 1:
+                        self.assertIn("readiness unavailable:", result.stderr)
+                        self.assertFalse(target.exists())
+                    else:
+                        self.assertEqual(result.stderr, "")
+                        self.assertEqual(json.loads(target.read_bytes()), final[1])
 
 
 if __name__ == "__main__":
