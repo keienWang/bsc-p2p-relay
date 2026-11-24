@@ -73,7 +73,7 @@ func TestRunRelaySkipsConstructionWhenCanceled(t *testing.T) {
 	cancel()
 	cfg := relay.DefaultConfig()
 	cfg.MaxPeers = 0 // New would reject this; a canceled startup should not reach it.
-	if err := runRelay(ctx, func() {}, cfg, "127.0.0.1:0", true); err != nil {
+	if err := runRelay(ctx, func() {}, cfg, "127.0.0.1:0", true, defaultHTTPDrainTimeout); err != nil {
 		t.Fatalf("canceled startup returned %v", err)
 	}
 }

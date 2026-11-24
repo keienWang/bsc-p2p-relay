@@ -44,7 +44,7 @@ func TestRunRelayAPIBindFailureDoesNotAnnounceStartup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	restored := false
-	err = runRelay(ctx, func() { restored = true }, cfg, api.Addr().String(), true)
+	err = runRelay(ctx, func() { restored = true }, cfg, api.Addr().String(), true, defaultHTTPDrainTimeout)
 	var networkError *net.OpError
 	if !errors.As(err, &networkError) || networkError.Op != "listen" || networkError.Addr == nil || networkError.Addr.String() != api.Addr().String() {
 		t.Fatalf("want API listen failure, got %v", err)
@@ -100,7 +100,7 @@ func TestRunRelayDoesNotAnnounceStartupWhenCanceledDuringAPIBind(t *testing.T) {
 	}
 
 	var stops int
-	if err := runRelayWithHTTPListener(ctx, func() { stops++ }, cfg, "127.0.0.1:0", true, bind); err != nil {
+	if err := runRelayWithHTTPListener(ctx, func() { stops++ }, cfg, "127.0.0.1:0", true, defaultHTTPDrainTimeout, bind); err != nil {
 		t.Fatal(err)
 	}
 	if apiAddress == "" || !errors.Is(ctx.Err(), context.Canceled) {
@@ -140,7 +140,7 @@ func TestRunRelayReportsAPIBindFailureEvenIfCanceled(t *testing.T) {
 		return listener, err
 	}
 	err = runRelayWithHTTPListener(ctx, func() { t.Error("bind failure followed cancellation branch") },
-		cfg, occupied.Addr().String(), true, bind)
+		cfg, occupied.Addr().String(), true, defaultHTTPDrainTimeout, bind)
 	if !errors.Is(err, syscall.EADDRINUSE) || !strings.HasPrefix(err.Error(), "bind HTTP API: ") {
 		t.Fatalf("want HTTP bind failure with underlying cause, got %v", err)
 	}
@@ -157,7 +157,7 @@ func TestRunRelayIdentifiesP2PBindFailure(t *testing.T) {
 	cfg.ListenAddr = listener.Addr().String()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err = runRelay(ctx, func() { t.Error("unexpected cancellation callback") }, cfg, "127.0.0.1:0", true)
+	err = runRelay(ctx, func() { t.Error("unexpected cancellation callback") }, cfg, "127.0.0.1:0", true, defaultHTTPDrainTimeout)
 	var networkError *net.OpError
 	if !errors.Is(err, syscall.EADDRINUSE) || !errors.As(err, &networkError) || networkError.Op != "listen" || networkError.Addr == nil || networkError.Addr.String() != cfg.ListenAddr {
 		t.Fatalf("want underlying occupied P2P listen error, got %v", err)
@@ -189,7 +189,7 @@ func TestRunRelayLogsBoundEphemeralAPI(t *testing.T) {
 	cfg.ListenAddr = "127.0.0.1:0"
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runRelay(ctx, func() {}, cfg, "127.0.0.1:0", true) }()
+	go func() { done <- runRelay(ctx, func() {}, cfg, "127.0.0.1:0", true, defaultHTTPDrainTimeout) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

@@ -55,7 +55,7 @@ func TestRunRelayClosesHTTPConnectionsOnServeFailure(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		result <- runRelayWithHTTPListener(ctx, func() {}, cfg, api.Addr().String(), true,
+		result <- runRelayWithHTTPListener(ctx, func() {}, cfg, api.Addr().String(), true, defaultHTTPDrainTimeout,
 			func(_, _ string) (net.Listener, error) {
 				return &failNextAcceptListener{Listener: api, failure: failure, err: acceptErr}, nil
 			})

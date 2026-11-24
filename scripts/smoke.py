@@ -158,6 +158,10 @@ def check_configuration_cli(binary, work):
             ((), 0, "configuration check passed; listeners and peer connectivity were not checked"),
             (("--api", "[::1]:0"), 0, "configuration check passed; listeners and peer connectivity were not checked"),
             (("--api", "127.0.0.1:65536"), 1, "check HTTP API address"),
+            (("--http-drain-timeout", "1ms"), 0, "configuration check passed; listeners and peer connectivity were not checked"),
+            (("--http-drain-timeout", "30s"), 0, "configuration check passed; listeners and peer connectivity were not checked"),
+            (("--http-drain-timeout", "999us"), 1, "HTTP drain timeout must be 1ms..30s"),
+            (("--http-drain-timeout", "30.001s"), 1, "HTTP drain timeout must be 1ms..30s"),
             (("--p2p", "127.0.0.1"), 1, "check P2P listen address:"),
             (("--p2p", "[::1:30311"), 1, "check P2P listen address:"),
             (("--p2p", "127.0.0.1:65536"), 1, "P2P numeric port must be 0..65535"),
@@ -185,6 +189,14 @@ def check_configuration_cli(binary, work):
                         f"configuration rejection did not report {expected!r}")
             require("experimental relay started" not in result.stdout + result.stderr,
                     "configuration check unexpectedly announced startup")
+        invalid_launch = subprocess.run(
+            [binary, "--no-discovery", "--api", address, "--p2p", address, "--http-drain-timeout", "0s"],
+            cwd=work, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5, check=False,
+        )
+        require(invalid_launch.returncode == 1 and not invalid_launch.stdout
+                and "HTTP drain timeout must be 1ms..30s" in invalid_launch.stderr
+                and "experimental relay started" not in invalid_launch.stderr,
+                "ordinary startup did not reject invalid HTTP drain timeout before binding")
     print("PASS: offline configuration check and validation errors without listener binds")
 
 
@@ -244,6 +256,7 @@ def main(binary):
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
         check_cli_rejections(binary, work)
         check_configuration_cli(binary, work)
+        check_configured_drain_cli(binary, work)
         if list(pathlib.Path(work).iterdir()):
             raise AssertionError("CLI rejection left persistent data files")
     check_observation(binary, observe_only=False)
@@ -338,6 +351,38 @@ def running_local_relay(binary, work, host, bind, observe_only):
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)
+
+
+def check_configured_drain_cli(binary, work):
+    """Use SIGTERM on an owned process while a local GET is still in flight."""
+    host = "127.0.0.1"
+    with tempfile.TemporaryFile() as log:
+        process = subprocess.Popen(
+            [binary, "--no-discovery", "--p2p", host + ":0", "--api", host + ":0",
+             "--observe-only", "--http-drain-timeout", "100ms"],
+            cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            api, port = wait_startup_endpoint(process, log, host, True)
+            with socket.create_connection((host, port), timeout=2) as stalled:
+                stalled.sendall(f"GET /healthz HTTP/1.1\r\nHost: {api}\r\n".encode("ascii"))
+                # The server accepts/tracks the first socket before serving
+                # this second socket. Keep the first GET headers incomplete.
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                with opener.open(f"http://{api}/healthz", timeout=2) as control:
+                    require(control.status == 200, "HTTP drain fixture did not observe a healthy relay")
+                process.send_signal(signal.SIGTERM)
+                exit_code = process.wait(timeout=10)
+                details = os.pread(log.fileno(), MAX_STARTUP_LOG_BYTES + 1, 0)
+                require(len(details) <= MAX_STARTUP_LOG_BYTES, "HTTP drain fixture exceeded log budget")
+                require(exit_code == 1 and b"shut down HTTP API: context deadline exceeded" in details,
+                        f"configured HTTP drain did not expire (exit {exit_code}): {details!r}")
+                require(stalled.recv(1) == b"", "HTTP drain timeout left the local connection open")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+    print("PASS: configured HTTP drain timeout closes the owned local connection and reports failure")
 
 
 def check_observation(binary, observe_only, ipv6=False):

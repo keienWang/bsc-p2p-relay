@@ -71,6 +71,7 @@ The positional-error message deliberately does not print supplied arguments.
 | `--network` | `mainnet` | Exactly `mainnet` (chain ID 56) or `testnet` (97). |
 | `--p2p` | `:30311` | P2P listen address; use `127.0.0.1:0` for an isolated, ephemeral TCP port. Binding errors fail startup. |
 | `--api` | `127.0.0.1:8787` | Literal loopback IP and port only, for example `127.0.0.1:8787` or `[::1]:8787`. `localhost:8787`, `:8787` and `0.0.0.0:8787` are rejected. |
+| `--http-drain-timeout` | `5s` | Graceful HTTP shutdown window, from `1ms` through `30s`. Does not bound P2P teardown. |
 | `--no-discovery` | `false` | Disables discovery, not static peer dialing or the P2P listener. |
 | `--observe-only` | `false` | Keeps health, readiness and stats; disables HTTP transaction submission without changing P2P. |
 | `--check-config` | `false` | Check CLI and Node configuration offline; do not start listeners or connect to peers. Requires a numeric API port. |
@@ -162,9 +163,11 @@ check that flag-only arguments, including a bare final `--`, reach the normal
 address-validation path. These are argument-parsing tests, not delivery tests.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
-to the verified relay PID. The CLI allows up to five seconds for HTTP requests
-to finish. If that drain fails, it closes the remaining HTTP connections and
-returns an error. It then closes the P2P server. This is **not a delivery drain**:
+to the verified relay PID. HTTP requests get up to the configured drain timeout
+to finish (five seconds by default). Set `--http-drain-timeout` to leave room
+for P2P cleanup inside a supervisor's stop grace period; it does not bound total
+process exit time. If the drain fails, the CLI closes the remaining HTTP
+connections, closes the P2P server, and returns an error. This is **not a delivery drain**:
 queued transactions can be abandoned. The writer does not start work on a
 dequeued message if its stop signal is already visible at the pre-write check.
 This does not cancel a write already past that check. Wait for process exit and

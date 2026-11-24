@@ -19,6 +19,8 @@ import (
 	"github.com/keienWang/bsc-p2p-relay/internal/relay"
 )
 
+const defaultHTTPDrainTimeout = 5 * time.Second
+
 type peersFlag []string
 
 func (p *peersFlag) String() string     { return fmt.Sprint([]string(*p)) }
@@ -35,6 +37,8 @@ func run() error {
 	flag.StringVar(&cfg.Network, "network", cfg.Network, "mainnet (56) or testnet (97)")
 	flag.StringVar(&cfg.ListenAddr, "p2p", cfg.ListenAddr, "P2P TCP/UDP listen address")
 	api := flag.String("api", "127.0.0.1:8787", "loopback HTTP listen address")
+	var httpDrainTimeout time.Duration
+	flag.DurationVar(&httpDrainTimeout, "http-drain-timeout", defaultHTTPDrainTimeout, "graceful HTTP drain timeout (1ms..30s)")
 	var observeOnly, checkConfig bool
 	flag.BoolVar(&observeOnly, "observe-only", false, "keep observation endpoints but disable HTTP transaction submission")
 	flag.BoolVar(&checkConfig, "check-config", false, "validate configuration without binding listeners or dialing peers")
@@ -47,6 +51,9 @@ func run() error {
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help for supported flags")
+	}
+	if httpDrainTimeout < time.Millisecond || httpDrainTimeout > 30*time.Second {
+		return errors.New("HTTP drain timeout must be 1ms..30s")
 	}
 	cfg.Peers = peers
 	if err := relay.LoopbackAddress(*api); err != nil {
@@ -70,7 +77,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runRelay(ctx, stop, cfg, *api, observeOnly)
+	return runRelay(ctx, stop, cfg, *api, observeOnly, httpDrainTimeout)
 }
 
 // Check only P2P address structure and numeric port bounds. Startup remains
@@ -103,11 +110,11 @@ func checkP2PListenAddress(address string) error {
 	return nil
 }
 
-func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool) error {
-	return runRelayWithHTTPListener(ctx, stopSignals, cfg, api, observeOnly, net.Listen)
+func runRelay(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool, drainTimeout time.Duration) error {
+	return runRelayWithHTTPListener(ctx, stopSignals, cfg, api, observeOnly, drainTimeout, net.Listen)
 }
 
-func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool, listen func(string, string) (net.Listener, error)) error {
+func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay.Config, api string, observeOnly bool, drainTimeout time.Duration, listen func(string, string) (net.Listener, error)) error {
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -164,7 +171,7 @@ func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay
 		// A second signal may terminate the process if graceful shutdown stalls.
 		stopSignals()
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdown, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := shutdownHTTP(shutdown, srv); err != nil {
 		return fmt.Errorf("shut down HTTP API: %w", err)

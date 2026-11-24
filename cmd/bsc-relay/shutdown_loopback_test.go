@@ -33,7 +33,7 @@ func TestRunRelayCancellationReleasesObservationListener(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runErr = runRelay(ctx, func() { restores.Add(1) }, cfg, api, true)
+		runErr = runRelay(ctx, func() { restores.Add(1) }, cfg, api, true, defaultHTTPDrainTimeout)
 	}()
 	t.Cleanup(func() {
 		cancel()
