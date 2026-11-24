@@ -200,10 +200,13 @@ func validate(raw []byte, chainID *big.Int) (*types.Transaction, common.Address,
 	if tx.Gas() < 21000 {
 		return nil, zero, errors.New("gas limit is below 21000")
 	}
-	if tx.Value().BitLen() > 256 || tx.GasFeeCap().BitLen() > 256 || tx.GasTipCap().BitLen() > 256 {
+	// The transaction getters return defensive copies. Read each cap once
+	// for both the width and ordering checks.
+	fee, tip := tx.GasFeeCap(), tx.GasTipCap()
+	if tx.Value().BitLen() > 256 || fee.BitLen() > 256 || tip.BitLen() > 256 {
 		return nil, zero, errors.New("transaction value or fee exceeds uint256")
 	}
-	if tx.GasTipCap().Cmp(tx.GasFeeCap()) > 0 {
+	if tip.Cmp(fee) > 0 {
 		return nil, zero, errors.New("max priority fee exceeds max fee")
 	}
 	canonical, err := tx.MarshalBinary()
