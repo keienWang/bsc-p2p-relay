@@ -261,6 +261,20 @@ ordering is not enforced. Only enable this check where clock adjustments or
 equal timestamps should invalidate a comparison; it cannot prove request
 order, verify elapsed time, or compute a rate.
 
+To require a minimum **recorded** window as well, use a positive integer
+number of milliseconds. The threshold is inclusive and compares full
+nanosecond timestamps. It already implies forward time.
+
+```sh
+python3 scripts/stats_delta.py before.json after.json \
+  --min-observation-gap-ms 5000 --require-unchanged
+```
+
+A gap below the threshold exits `1` without publishing a report. A large
+enough gap can still yield exit `3` if a selected counter changed. This check
+uses UTC wall timestamps, not monotonic elapsed time. Clock jumps can
+invalidate or overstate the window; neither outcome proves no relay activity.
+
 ### Assert sampled counters did not change
 
 ```sh

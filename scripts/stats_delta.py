@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Compare two saved v1 statistics bodies offline; never fetch or submit data."""
 import argparse
+import datetime
 import json
 import sys
 
@@ -19,13 +20,25 @@ def parse_counter_budget(value):
     selector, separator, digits = value.partition("=")
     if not separator or selector not in SELECTABLE_COUNTERS:
         raise argparse.ArgumentTypeError("expected an input counter as GROUP.COUNTER=COUNT")
-    if not digits.isascii() or not digits.isdecimal():
-        raise argparse.ArgumentTypeError("counter limit must be an ASCII decimal uint64")
-    digits = digits.lstrip("0") or "0"
-    if len(digits) > 20 or int(digits) > (1 << 64) - 1:
-        raise argparse.ArgumentTypeError("counter limit must be an ASCII decimal uint64")
     group, field = selector.split(".")
-    return group, field, int(digits)
+    return group, field, parse_uint64(digits, "counter limit must be an ASCII decimal uint64")
+
+
+def parse_uint64(digits, message):
+    if not digits.isascii() or not digits.isdecimal():
+        raise argparse.ArgumentTypeError(message)
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > 20 or (value := int(digits)) > (1 << 64) - 1:
+        raise argparse.ArgumentTypeError(message)
+    return value
+
+
+def parse_min_gap_ms(digits):
+    message = "minimum observation gap must be a positive ASCII decimal uint64"
+    value = parse_uint64(digits, message)
+    if not value:
+        raise argparse.ArgumentTypeError(message)
+    return value
 
 
 def observed_time_key(stamp):
@@ -34,11 +47,24 @@ def observed_time_key(stamp):
     return seconds, fraction.ljust(9, "0")
 
 
-def compare_snapshots(before, after, *, require_forward_time=False):
+def observed_gap_ns(before, after):
+    before_seconds, before_fraction = observed_time_key(before)
+    after_seconds, after_fraction = observed_time_key(after)
+    # Inputs are already validated as UTC. Subtract whole seconds as a
+    # timedelta and handle fractions separately to preserve all nine digits.
+    gap = datetime.datetime.fromisoformat(after_seconds) - datetime.datetime.fromisoformat(before_seconds)
+    return (gap.days * 86400 + gap.seconds) * 1_000_000_000 + int(after_fraction) - int(before_fraction)
+
+
+def compare_snapshots(before, after, *, require_forward_time=False, min_gap_ms=None):
     """Inputs must have passed decode_stats. Deltas are not rates or an identity."""
     require_same_instance(before, after)
     if require_forward_time and observed_time_key(after["observed_at"]) <= observed_time_key(before["observed_at"]):
         raise ValueError("after observed_at must be strictly later than before observed_at")
+    if min_gap_ms is not None:
+        gap_ns = observed_gap_ns(before["observed_at"], after["observed_at"])
+        if gap_ns < min_gap_ms * 1_000_000:
+            raise ValueError(f"observation gap is below {min_gap_ms} ms (recorded {gap_ns} ns)")
     groups = {}
     for group in ("submit", "http"):
         delta = {}
@@ -66,6 +92,8 @@ def main(argv=None):
     parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
     parser.add_argument("--require-forward-time", action="store_true",
                         help="reject equal or decreasing UTC observation timestamps")
+    parser.add_argument("--min-observation-gap-ms", type=parse_min_gap_ms, metavar="MILLISECONDS",
+                        help="require the recorded UTC observation gap to be at least this many milliseconds")
     guard = parser.add_mutually_exclusive_group()
     guard.add_argument("--require-unchanged", action="store_true",
                        help="exit 3 after reporting a valid comparison with any nonzero delta")
@@ -87,7 +115,8 @@ def main(argv=None):
         stage = "after snapshot"
         after = read_snapshot(args.after)
         stage = "snapshot comparison"
-        result = compare_snapshots(before, after, require_forward_time=args.require_forward_time)
+        result = compare_snapshots(before, after, require_forward_time=args.require_forward_time,
+                                   min_gap_ms=args.min_observation_gap_ms)
         if args.output is not None:
             stage = "output report"
             save_new_snapshot(args.output, result)

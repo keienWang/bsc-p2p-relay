@@ -108,6 +108,50 @@ class StatsDeltaTests(unittest.TestCase):
             self.assertEqual((decrease.returncode, decrease.stdout), (1, ""))
             self.assertIn("counter decreased", decrease.stderr)
 
+    def test_minimum_recorded_gap_cli_is_exact_inclusive_and_preserves_counter_guard(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            before["observed_at"] = "2026-11-19T23:59:59.999000001Z"
+            after["observed_at"] = "2026-11-20T00:00:00Z"
+            option = "--min-observation-gap-ms"
+
+            def run(*args, input_name="before.json"):
+                for filename, value in (("before.json", before), ("after.json", after)):
+                    (root / filename).write_text(json.dumps(value), encoding="utf-8")
+                return subprocess.run(command + [input_name, "after.json", *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            baseline = run("--require-forward-time", "--require-unchanged")
+            self.assertEqual((baseline.returncode, baseline.stderr), (0, ""))
+            short = run(option, "1", "--require-unchanged", "--output", "no-report.json")
+            self.assertEqual((short.returncode, short.stdout), (1, ""))
+            self.assertIn("observation gap is below 1 ms", short.stderr)
+            self.assertFalse((root / "no-report.json").exists())
+
+            after["observed_at"] = "2026-11-20T00:00:00.000000001Z"
+            equal = run(option, "1", "--require-forward-time", "--require-unchanged")
+            ordinary = run()
+            self.assertEqual((equal.returncode, equal.stderr, equal.stdout), (0, "", ordinary.stdout))
+            after["http"]["concurrency_rejected_total"] = 1
+            increase = run(option, "1", "--require-unchanged", "--output", "report.json")
+            self.assertEqual((increase.returncode, increase.stderr), (3, ""))
+            report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["http_delta"], {"concurrency_rejected_total": 1})
+
+            # A later wall timestamp is required even without the older option.
+            after["observed_at"] = "2026-11-19T23:59:59Z"
+            backwards = run(option, "1")
+            self.assertEqual((backwards.returncode, backwards.stdout), (1, ""))
+            self.assertIn("observation gap is below 1 ms", backwards.stderr)
+            for value in ("0", "-1", "1.5", "１", "+1", str(1 << 64), "9" * 5000):
+                with self.subTest(value=value[:30]):
+                    bad = run(option, value, input_name="missing.json")
+                    self.assertEqual((bad.returncode, bad.stdout), (2, ""))
+                    self.assertIn("positive ASCII decimal uint64", bad.stderr)
+                    self.assertNotIn("before snapshot:", bad.stderr)
+
     def test_restart_metadata_change_and_every_counter_decrease_fail_closed(self):
         cases = []
         changed = sample()
