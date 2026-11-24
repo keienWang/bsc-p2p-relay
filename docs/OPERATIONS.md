@@ -171,6 +171,10 @@ record its status. Do not use a forced kill as an ordinary shutdown or treat a
 clean exit as a delivery receipt.
 Any uncompleted or unanswered client request has an uncertain outcome.
 
+A terminal listener error after startup is reported as `serve HTTP API:`.
+Unlike signal-driven shutdown, this failure closes existing HTTP connections
+immediately before the P2P server is stopped; it does not attempt an HTTP drain.
+
 ### Node lifecycle callers
 
 Repository code embedding `internal/relay.Node` must create a fresh Node after

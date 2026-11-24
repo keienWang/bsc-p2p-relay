@@ -118,7 +118,13 @@ func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve HTTP API: %w", err)
+			// A terminal Serve error closes the listener, but accepted
+			// connections can outlive it. Close them before tearing down P2P.
+			serveErr := fmt.Errorf("serve HTTP API: %w", err)
+			if closeErr := srv.Close(); closeErr != nil {
+				return errors.Join(serveErr, fmt.Errorf("close HTTP API: %w", closeErr))
+			}
+			return serveErr
 		}
 	case <-ctx.Done():
 		// A second signal may terminate the process if graceful shutdown stalls.
