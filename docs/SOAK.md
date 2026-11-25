@@ -9,6 +9,9 @@ new evidence](SOAK_HTTP_VALIDATION.md).
 
 ## Reproduce
 
+`--help` (or `-h`) prints usage without starting the workload. Unsupported
+or extra arguments exit 2 before acquiring the lock or creating artifacts.
+
 Use Go 1.26.11 and the repository's pinned BSC v1.8.2 dependencies, downloaded
 before the run. The script uses `GOTOOLCHAIN=local`, `GOPROXY=off`, a shared
 `flock`, and GOMAXPROCS=2 by default. It starts at most one load process and

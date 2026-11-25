@@ -2,14 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Only loopback HTTP / in-process MsgPipe. No public networking or transactions.
 set -euo pipefail
-cd "$(dirname "$0")/.."
-mode=${1:---short}
+usage='Usage: run_unique_capacity.sh [--short|--default-ttl|--failure-probe|--help|-h]'
+if (( $# > 1 )); then
+    printf '%s\n' "$usage" >&2
+    exit 2
+fi
+mode=${1---short}
 case "$mode" in
+  --help|-h) printf '%s\n' "$usage"; exit 0 ;;
   --short) run='^TestUnique(Capacity|HTTP.*|CountAudit.*|TransportAudit.*)$'; timeout=60s; unset RELAY_UNIQUE_DEFAULTS RELAY_UNIQUE_FAILURE_PROBE ;;
   --default-ttl) run='^TestUniqueCapacityDefaultTTL$'; timeout=180s; export RELAY_UNIQUE_DEFAULTS=1; unset RELAY_UNIQUE_FAILURE_PROBE ;;
   --failure-probe) run='^TestUniqueCapacityFailureReport$'; timeout=30s; export RELAY_UNIQUE_FAILURE_PROBE=1; unset RELAY_UNIQUE_DEFAULTS ;;
-  *) echo 'Usage: run_unique_capacity.sh [--short|--default-ttl|--failure-probe]' >&2; exit 2 ;;
+  *) printf '%s\n' "$usage" >&2; exit 2 ;;
 esac
+cd "$(dirname "$0")/.."
 command -v flock >/dev/null || { echo 'flock is required' >&2; exit 2; }
 # Share the existing soak lock: do not compete with the old occupancy workload.
 exec 9>"${TMPDIR:-/tmp}/bsc-relay-soak.lock"

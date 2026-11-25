@@ -262,6 +262,9 @@ count physical entries at their sampling instant; the final per-hash ledger
 checks deadlines at its own later instant. An expired entry awaiting pruning can
 therefore appear physically present but not unexpired in that ledger.
 
+`--help` (or `-h`) prints usage without starting the workload. Unsupported
+or extra arguments exit 2 before acquiring the lock or creating artifacts.
+
 Each run creates a new `/tmp/bsc-relay-unique.*` directory containing
 `environment.txt` (Go, OS, revision, source fingerprints, process settings),
 `report.json` (phases, ledgers, occupancy, transport outcomes, measured intervals),

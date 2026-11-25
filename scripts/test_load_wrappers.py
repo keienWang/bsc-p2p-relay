@@ -10,6 +10,39 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parent
 
 
+@unittest.skipUnless(shutil.which("bash"), "load wrapper argument checks require Bash")
+class LoadWrapperArgumentTests(unittest.TestCase):
+    def test_help_and_argument_errors_never_start_load(self):
+        common = ((("--help",), 0), (("-h",), 0), (("",), 2),
+                  (("--unknown",), 2), (("--help", "extra"), 2))
+        for wrapper, extra in (
+            ("run_relay_soak.sh", (("unexpected",),)),
+            ("run_unique_capacity.sh", (("--short", "--help"),
+                                        ("--default-ttl", "extra"),
+                                        ("--failure-probe", "--short"))),
+        ):
+            for args, code in (*common, *((invalid, 2) for invalid in extra)):
+                with self.subTest(wrapper=wrapper, args=args), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    stubs = root / "bin"
+                    stubs.mkdir()
+                    for name in ("flock", "mktemp", "go"):
+                        stub = stubs / name
+                        stub.write_text("#!/bin/bash\nprintf '%s\\n' \"$0\" >> \"$TEST_TOUCHED\"\nexit 99\n",
+                                        encoding="utf-8")
+                        stub.chmod(0o700)
+                    env = dict(os.environ, PATH=str(stubs) + os.pathsep + os.environ["PATH"],
+                               TMPDIR=directory, TEST_TOUCHED=str(root / "touched"))
+                    result = subprocess.run(["bash", str(SCRIPTS / wrapper), *args], env=env,
+                                            capture_output=True, text=True, timeout=5, check=False)
+                    self.assertCountEqual(root.iterdir(), [stubs],
+                                          "help/error created a lock/output or invoked a workload tool")
+                    self.assertEqual(result.returncode, code, (result.stdout, result.stderr))
+                    output, empty = (result.stderr, result.stdout) if code else (result.stdout, result.stderr)
+                    self.assertEqual(empty, "")
+                    self.assertIn(f"Usage: {wrapper}", output)
+
+
 @unittest.skipUnless(all(shutil.which(tool) for tool in ("bash", "flock", "sha256sum", "tee")),
                      "load wrappers require Linux shell utilities")
 class LoadWrapperLogTests(unittest.TestCase):

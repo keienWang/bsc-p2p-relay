@@ -2,6 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Opt-in only. All relay traffic stays inside one process or on 127.0.0.1.
 set -euo pipefail
+usage='Usage: run_relay_soak.sh [--help|-h]'
+if (( $# != 0 )); then
+    if (( $# == 1 )) && [[ "$1" == --help || "$1" == -h ]]; then
+        printf '%s\n' "$usage"
+        exit 0
+    fi
+    printf '%s\n' "$usage" >&2
+    exit 2
+fi
 cd "$(dirname "$0")/.."
 command -v flock >/dev/null || { echo 'flock is required to prevent concurrent soak processes' >&2; exit 2; }
 exec 9>"${TMPDIR:-/tmp}/bsc-relay-soak.lock"
