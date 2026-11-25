@@ -34,6 +34,7 @@ jobs:
         timeout-minutes: 1
         run: bash scripts/collect_binary_metadata.sh
       - run: python3 scripts/smoke.py ./bsc-relay
+      - run: python3 scripts/check_flag_defaults.py ./bsc-relay
       - run: python3 scripts/check_runtime_dependencies.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
   official_txpool:

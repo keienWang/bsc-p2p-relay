@@ -492,6 +492,11 @@ From the repository root:
 python3 scripts/check_operations_docs.py
 ```
 
+After building the delivery artifact, also run
+`python3 scripts/check_flag_defaults.py ./bsc-relay` to compare the flag
+table with the defaults in the artifact's `--help`. This exits before listener
+startup and does not check runtime configuration or reachability.
+
 This standard-library-only check reads local files. It compares flag names and
 JSON field names with source declarations, checks literal handler/admission error
 strings, and checks relative file/heading links in this runbook plus its
