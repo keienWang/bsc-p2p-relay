@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -125,6 +126,64 @@ func TestNodeCloseReleasesLocalTransactionCache(t *testing.T) {
 				t.Fatal("submission after Close re-populated local state")
 			}
 		})
+	}
+}
+
+func TestDelayedMaintenanceWakeUsesCurrentTime(t *testing.T) {
+	n := bareNode(t)
+	n.cache = newStore(4, MaxRawTransaction*4, 4*time.Hour)
+	now := time.Now()
+	expired, live := fixtureTx(t, 56, 1, false), fixtureTx(t, 56, 2, false)
+	for _, fixture := range []struct {
+		tx  *types.Transaction
+		age time.Duration
+	}{
+		{expired, 5 * time.Hour}, // deadline one hour before handling the wake
+		{live, 3 * time.Hour},    // deadline one hour after handling it
+	} {
+		if fresh, err := n.cache.add(fixture.tx, now.Add(-fixture.age)); err != nil || !fresh {
+			t.Fatalf("fixture cache insertion = %v, %v", fresh, err)
+		}
+	}
+	p := &peerSession{}
+	p.recordSent(expired.Hash(), now.Add(-time.Hour))
+	p.recordSent(live.Hash(), now.Add(time.Hour))
+	n.mu.Lock()
+	n.setPeerLocked(enode.ID{1}, p)
+	n.mu.Unlock()
+
+	ticks := make(chan time.Time)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		n.maintenanceLoop(ticks)
+	}()
+	select {
+	case ticks <- now.Add(-2 * time.Hour): // an old tick predating even the expired deadline
+	case <-time.After(5 * time.Second):
+		close(n.stop)
+		t.Fatal("maintenance worker did not receive its wake")
+	}
+	close(n.stop)
+	select {
+	case <-done: // The only selected wake has finished pruning.
+	case <-time.After(5 * time.Second):
+		t.Fatal("maintenance did not stop")
+	}
+
+	// Observe physical storage; Health would independently prune the cache.
+	n.cache.mu.Lock()
+	expiredEntry, liveEntry := n.cache.entries[expired.Hash()], n.cache.entries[live.Hash()]
+	n.cache.mu.Unlock()
+	if expiredEntry != nil || liveEntry == nil {
+		t.Errorf("cache expired present=%v live present=%v, want false/true", expiredEntry != nil, liveEntry != nil)
+	}
+	n.submitMu.Lock()
+	_, expiredSent := p.sent[expired.Hash()]
+	_, liveSent := p.sent[live.Hash()]
+	n.submitMu.Unlock()
+	if expiredSent || !liveSent {
+		t.Errorf("sent expired present=%v live present=%v, want false/true", expiredSent, liveSent)
 	}
 }
 

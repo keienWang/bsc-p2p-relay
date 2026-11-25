@@ -174,16 +174,22 @@ func (n *Node) Start() error {
 		defer close(n.maintenanceDone)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		for {
-			select {
-			case now := <-ticker.C:
-				n.prune(now)
-			case <-n.stop:
-				return
-			}
-		}
+		n.maintenanceLoop(ticker.C)
 	}()
 	return nil
+}
+
+func (n *Node) maintenanceLoop(ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ticks:
+			// A tick can describe an older scheduled instant after a stall.
+			// Evaluate expiry at the start of the actual maintenance pass.
+			n.prune(time.Now())
+		case <-n.stop:
+			return
+		}
+	}
 }
 
 // Close is idempotent and terminal, including before Start. It delegates

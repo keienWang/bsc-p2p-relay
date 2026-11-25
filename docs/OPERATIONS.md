@@ -467,7 +467,8 @@ interpret zero cache occupancy or an expiry benchmark as zero RSS or leak freedo
 5. Restart discards all cache entries, peer sent metadata, queues, transport
    counters and the ephemeral node identity. There is no chain database to
    migrate/restore, persistent transaction replay log or cache-clear API. The
-   one-second maintenance tick prunes expired cache/sent state while idle;
+   one-second maintenance tick prunes expired cache/sent state while idle,
+   using the clock when a pass starts rather than a delayed scheduled time;
    accesses also enforce expiry. If an immediate local state reset is necessary,
    a deliberate stop/start does it at the cost of abandoning transport state.
 6. Pruning clears references but retains bounded reusable allocation; GC/RSS
