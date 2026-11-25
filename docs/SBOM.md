@@ -30,6 +30,12 @@ Or pass `--source /path/to/checkout` for another local checkout. `make sbom` use
 
 Generation fixes `GOWORK=off`, `GOENV=off`, module mode and read-only module loading. Custom `GOFLAGS` (except `-buildvcs=false`) and nonempty `GOEXPERIMENT` are rejected, so overlays, alternate module files, vendor mode and custom build tags cannot silently change the source graph. Target `GOOS`, `GOARCH` and `CGO_ENABLED` remain supported and are recorded in the manifest. Before writing output, the script checks reference uniqueness/closure and rejects filesystem locations, credential-bearing URLs and URL queries/fragments. It does not sandbox malicious toolchains or verify that the public source passed CI; those are separate release checks.
 
+A validated manifest is written and synced in a private stage beside the
+destination, then atomically installed. A failed write or replace preserves
+the previous manifest; successful replacement retains its ordinary permission
+bits. This provides atomic visibility, not power-loss durability for the
+destination directory.
+
 `make python-test` validates repository/adapter identities, environment isolation, reference rewriting/closure and output location safeguards without contacting the network. Generation metadata and tool binary hashes can differ by tool environment/time. The selected source commit and target build properties are the primary provenance anchors.
 
 A passing vulnerability scan, this manifest, and its valid schema do not imply production readiness. Keep the independent network, consensus/header, supply-chain audit and release gates in PRODUCTION_READINESS.md.

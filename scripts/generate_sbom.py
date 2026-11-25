@@ -7,6 +7,7 @@ import os
 import pathlib
 import re
 import shlex
+import stat
 import subprocess
 import tempfile
 import urllib.parse
@@ -138,6 +139,33 @@ def normalize(bom, commit):
     return bom
 
 
+def publish_output(output, bom):
+    """Stage complete JSON before replacing a prior regular manifest."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    mode = None
+    try:
+        previous = output.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if not stat.S_ISREG(previous.st_mode):
+            raise ValueError("SBOM output must be a regular file")
+        mode = previous.st_mode & 0o777
+
+    # The same filesystem makes replacement atomic for readers. A private
+    # stage prevents exposing a truncated manifest while it is being written.
+    with tempfile.TemporaryDirectory(prefix=".relay-sbom-", dir=output.parent) as directory:
+        staged = pathlib.Path(directory) / output.name
+        with staged.open("w", encoding="utf-8") as stream:
+            json.dump(bom, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            if mode is not None:
+                staged.chmod(mode)
+            os.fsync(stream.fileno())
+        os.replace(staged, output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", default=".", help="local Git checkout containing the committed source")
@@ -172,8 +200,7 @@ def main():
             raise ValueError("generator changed the selected source tree")
         bom = normalize(json.loads(raw.read_text()), commit)
         validate_output(bom)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(bom, indent=2) + "\n")
+    publish_output(output, bom)
     print(f"Generated CycloneDX {bom['specVersion']} for source {commit}: {output}")
 
 
