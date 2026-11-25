@@ -379,8 +379,12 @@ no nonempty Origin. The object has exactly these current fields:
 | `confirmation_tracking` | Always `false` in this milestone. |
 <!-- operations-health:end -->
 
-Counters reset on restart. Peer and cache samples are not one global atomic
-snapshot; ordinary churn can change them between observations. Collect bounded,
+Counters reset on restart. The two cache fields describe the same live entries:
+zero entries imply zero bytes, and each entry accounts for at least one
+serialized byte. The local readiness probe treats a contradiction as unavailable
+(exit 1) and neither prints JSON nor saves a snapshot. Peer and cache samples
+are not one global atomic snapshot; ordinary churn can change them between
+observations. Collect bounded,
 timestamped samples and caller-side status/error/latency counts, with failures
 and uncertain outcomes retained. Do not infer exact per-transaction history from
 aggregate counter differences.

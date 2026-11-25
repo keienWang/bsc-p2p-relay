@@ -35,6 +35,16 @@ class ProbeReadinessTest(unittest.TestCase):
                 decode_readiness(json.dumps(value), status)
         self.assertEqual(decode_readiness(json.dumps(health(network="testnet", chain_id="97")), 503)["chain_id"], "97")
 
+    def test_cache_counts_must_describe_the_same_entries(self):
+        for count, size in ((0, 1), (1, 0), (2, 1)):
+            with self.subTest(count=count, size=size), self.assertRaisesRegex(
+                    ValueError, "cache count and bytes disagree"):
+                decode_readiness(json.dumps(health(cached_transactions=count, cached_bytes=size)), 503)
+        for count, size in ((0, 0), (1, 1), (2, 256)):
+            with self.subTest(count=count, size=size):
+                sample = health(cached_transactions=count, cached_bytes=size)
+                self.assertEqual(decode_readiness(json.dumps(sample), 503), sample)
+
     def test_loopback_cli_distinguishes_unready_from_unavailable(self):
         responses = queue.Queue()
         paths = []
@@ -67,7 +77,10 @@ class ProbeReadinessTest(unittest.TestCase):
                            "127.0.0.1:" + str(server.server_port)]
                 ready = health(ready_peers=1, connected_peers=2, written_messages=(1 << 64) - 1)
                 zero = health(connected_peers=2)
-                cases = ((200, json.dumps(ready).encode(), 0, ready),
+                occupied = dict(ready, cached_transactions=2, cached_bytes=256)
+                incoherent = dict(ready, cached_transactions=0, cached_bytes=1)
+                cases = ((200, json.dumps(occupied).encode(), 0, occupied),
+                         (200, json.dumps(incoherent).encode(), 1, None),
                          (503, json.dumps(zero).encode(), 3, zero),
                          (503, b'{"error":"unavailable"}', 1, None),
                          (503, json.dumps(ready).encode(), 1, None),
@@ -157,13 +170,17 @@ class ProbeReadinessTest(unittest.TestCase):
                 return subprocess.run(command + ["--output", destination, *extra], cwd=root,
                                       capture_output=True, text=True, timeout=5, check=False)
 
-            for name, status, payload, code, extra in (
+            cases = (
                 ("ready.json", 200, ready, 0, ()),
                 ("below-threshold.json", 200, ready, 3, ("--min-ready-peers", "2")),
                 ("unready.json", 503, zero, 3, ()),
                 ("inconsistent.json", 503, ready, 1, ()),
                 ("wrong-network.json", 200, ready, 1, ("--expect-network", "testnet")),
-            ):
+                ("phantom-bytes.json", 200, dict(ready, cached_transactions=0, cached_bytes=1), 1, ()),
+                ("too-few-bytes.json", 503, dict(zero, cached_transactions=2, cached_bytes=1), 1, ()),
+                ("nonempty.json", 200, dict(ready, cached_transactions=2, cached_bytes=256), 0, ()),
+            )
+            for name, status, payload, code, extra in cases:
                 with self.subTest(name=name):
                     responses.put((status, json.dumps(payload).encode()))
                     result = run(name, *extra)
@@ -176,7 +193,7 @@ class ProbeReadinessTest(unittest.TestCase):
                         self.assertEqual(result.stderr, "")
                         self.assertEqual(json.loads(path.read_bytes()), payload)
 
-            self.assertEqual(paths, ["/readyz"] * 5)
+            self.assertEqual(paths, ["/readyz"] * len(cases))
             paths.clear()
             previous = (root / "ready.json").read_bytes()
             for path in ("ready.json", "missing/record.json"):

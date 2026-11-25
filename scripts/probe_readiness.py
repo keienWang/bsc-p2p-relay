@@ -38,6 +38,9 @@ def decode_readiness(payload, status):
                             (WRITE_FIELDS, (1 << 64) - 1)):
         if any(type(value[key]) is not int or not 0 <= value[key] <= maximum for key in fields):
             raise ValueError("invalid readiness peer, occupancy, or write count")
+    count, size = value["cached_transactions"], value["cached_bytes"]
+    if size < count or (count == 0 and size != 0):
+        raise ValueError("readiness cache count and bytes disagree")
     ready = value["ready_peers"]
     if ready > value["connected_peers"] or status != (200 if ready else 503):
         raise ValueError("readiness status and peer counts disagree")
