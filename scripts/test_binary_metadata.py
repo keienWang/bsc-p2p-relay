@@ -21,7 +21,7 @@ SNAPSHOT = [
 ]
 EXPECTED = SNAPSHOT + [
     ["git", "rev-parse", "--verify", "HEAD"],
-    ["git", "rev-parse", "--verify", "HEAD^{tree}"],
+    ["git", "rev-parse", "--verify", "1" * 40 + "^{tree}"],
     ["file", "--", "./bsc-relay"],
     ["go", "version", "-m", "./bsc-relay"],
     ["go", "tool", "buildid", "./bsc-relay"],
@@ -29,7 +29,7 @@ EXPECTED = SNAPSHOT + [
     ["readelf", "-hW", "./bsc-relay"],
     ["readelf", "-lW", "./bsc-relay"],
     ["readelf", "-dW", "./bsc-relay"],
-] + SNAPSHOT
+] + SNAPSHOT + [["git", "rev-parse", "--verify", "HEAD"]]
 
 # Every external program in the collector is replaced, including hash/stat.
 # Hash/stat emulate their read-only contracts on actual fixture bytes. Unknown
@@ -55,8 +55,14 @@ if name == 'stat' and args in (['-c', '%s', '--', './bsc-relay'], ['-c', '%d:%i:
 elif name == 'sha256sum' and args == ['--', './bsc-relay']:
     digest = 'invalid' if os.getenv('INVALID_HASH') else hashlib.sha256(binary.read_bytes()).hexdigest()
     print(digest + '  ./bsc-relay')
-elif name == 'git' and args in (['rev-parse', '--verify', 'HEAD'], ['rev-parse', '--verify', 'HEAD^{tree}']):
-    print(('1' if args[-1] == 'HEAD' else '2') * 40)
+elif name == 'git' and args == ['rev-parse', '--verify', 'HEAD']:
+    moved = os.getenv('MUTATE') == 'source' and any(
+        row['argv'] == ['readelf', '-dW', './bsc-relay'] for row in rows)
+    print(('3' if moved else '1') * 40)
+elif name == 'git' and args in (['rev-parse', '--verify', 'HEAD^{tree}'],
+                               ['rev-parse', '--verify', '1' * 40 + '^{tree}']):
+    moved = os.getenv('MUTATE') == 'transient-source' and args[-1] == 'HEAD^{tree}'
+    print(('4' if moved else '2') * 40)
 elif name == 'file' and args == ['--', './bsc-relay']:
     print('./bsc-relay: mock ELF')
 elif name == 'go' and args == ['version', '-m', './bsc-relay']:
@@ -191,6 +197,18 @@ class BinaryMetadataTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('invalid size or SHA256 output', result.stderr)
                 self.assertNotIn('PASS:', result.stdout)
+
+    def test_rejects_source_drift_even_when_binary_is_unchanged(self):
+        result = self.collect(MUTATE='source')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('source HEAD changed during metadata collection', result.stderr)
+        self.assertNotIn('PASS:', result.stdout)
+
+    def test_source_tree_is_resolved_from_pinned_commit(self):
+        result = self.collect(MUTATE='transient-source')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('2' * 40, result.stdout)
+        self.assertNotIn('4' * 40, result.stdout)
 
     def test_rejects_content_drift(self):
         result = self.collect(MUTATE='content')
