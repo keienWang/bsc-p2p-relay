@@ -105,14 +105,18 @@ def save_new_snapshot(path, value):
         os.unlink(temporary)
 
 
-def parse_fetch_deadline(value):
+def parse_deadline(value, label):
     try:
         seconds = float(value)
     except ValueError:
         seconds = 0
     if not 0.001 <= seconds <= 60:  # Also rejects NaN and infinity.
-        raise argparse.ArgumentTypeError("fetch deadline must be 0.001 to 60 finite seconds")
+        raise argparse.ArgumentTypeError(f"{label} must be 0.001 to 60 finite seconds")
     return seconds
+
+
+def parse_fetch_deadline(value):
+    return parse_deadline(value, "fetch deadline")
 
 
 @contextlib.contextmanager

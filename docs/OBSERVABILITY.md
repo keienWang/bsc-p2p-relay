@@ -360,17 +360,23 @@ accepted. This checks reported configuration only, not chain identity on the
 wire. Invalid arguments exit `2`. The optional POSIX deadline works like the
 collector's; without it, the two-second socket idle timeout remains in effect.
 
-For a short local recovery window, use `--attempts 5 --fetch-deadline 2`.
-The attempt count includes the first GET (1–20, default 1). More than one
-attempt requires the POSIX per-fetch deadline. The CLI waits 250 ms only
+For a short local recovery window, use
+`--attempts 5 --fetch-deadline 2 --total-deadline 5`.
+The attempt count includes the first GET (1–20, default 1). Multiple attempts
+require at least one explicit POSIX deadline. The CLI waits up to 250 ms only
 after a valid observation below the configured minimum, including valid HTTP
 503 or HTTP 200 below that threshold. It stops immediately on a satisfactory
 sample (exit `0`), an unavailable or invalid response (exit `1` without falling
 back to a prior sample), or an exhausted sequence of valid low samples (exit
 `3`). A mismatch against `--expect-network` (or against the first validated
 network when no network was specified) is invalid on any attempt. Only the final
-valid sample is reported, never intermediate samples. The deadline applies per GET,
-not to local file operations; this is not a continuous monitor.
+valid sample is reported, never intermediate samples. A per-fetch deadline
+alone applies separately to each GET. The optional total deadline (0.001–60
+seconds) uses a monotonic clock and includes all fetches, parsing and retry
+waits; each GET takes the smaller limit when both options are set. Exhausting
+the total budget exits `1` without stdout JSON or a new output file, not `3`
+based on a prior valid observation. Neither deadline covers local file
+operations, and this is not a continuous monitor.
 
 To preserve a snapshot without truncating a prior file through shell
 redirection, use a new filename:

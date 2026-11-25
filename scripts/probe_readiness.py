@@ -11,13 +11,14 @@ import urllib.error
 import urllib.request
 
 from capture_stats import (NoRedirect, check_capture_destination, fetch_time_limit,
-                           loopback_base, parse_fetch_deadline, save_new_snapshot)
+                           loopback_base, parse_deadline, parse_fetch_deadline, save_new_snapshot)
 from smoke import read_observation_body, unique_object
 
 CHAIN_IDS = {"mainnet": "56", "testnet": "97"}
 MAX_PEERS = 200
 MAX_ATTEMPTS = 20
 RETRY_DELAY_SECONDS = 0.25
+OBSERVATION_ERRORS = (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException)
 OCCUPANCY_FIELDS = {"cached_transactions", "cached_bytes"}
 PEER_FIELDS = {"ready_peers", "connected_peers"}
 WRITE_FIELDS = {"written_messages", "write_failures"}
@@ -80,6 +81,42 @@ def parse_attempts(value):
     return count
 
 
+def remaining_seconds(deadline):
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("readiness total deadline exceeded")
+    return remaining
+
+
+def observe_readiness(args):
+    deadline = None if args.total_deadline is None else time.monotonic() + args.total_deadline
+    expected_network = args.expect_network
+    for attempt in range(1, args.attempts + 1):
+        remaining = remaining_seconds(deadline)
+        fetch_deadline = args.fetch_deadline
+        if remaining is not None:
+            fetch_deadline = remaining if fetch_deadline is None else min(fetch_deadline, remaining)
+        try:
+            result = probe(args.api, fetch_deadline)
+        except OBSERVATION_ERRORS:
+            remaining_seconds(deadline)  # Report the total deadline if it has elapsed.
+            raise
+
+        # Never publish a sample delivered after the deadline, even if the
+        # inner fetch completed before its timer handler ran.
+        remaining_seconds(deadline)
+        if expected_network is None:
+            expected_network = result["network"]
+        elif result["network"] != expected_network:
+            raise ValueError(f"network mismatch: expected {expected_network}, reported {result['network']}")
+        if result["ready_peers"] >= args.min_ready_peers or attempt == args.attempts:
+            return result
+        remaining = remaining_seconds(deadline)
+        time.sleep(RETRY_DELAY_SECONDS if remaining is None else min(RETRY_DELAY_SECONDS, remaining))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("api", help="literal loopback IP:port, e.g. 127.0.0.1:8787 or [::1]:8787")
@@ -89,29 +126,22 @@ def main(argv=None):
                         help=f"minimum ready peers for exit 0 (1 to {MAX_PEERS}, default 1)")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
+    parser.add_argument("--total-deadline", type=lambda value: parse_deadline(value, "total deadline"), metavar="SECONDS",
+                        help="optional POSIX elapsed limit for all waits and fetches, 0.001 to 60 seconds")
     parser.add_argument("--attempts", type=parse_attempts, default=1, metavar="COUNT",
-                        help=f"at most {MAX_ATTEMPTS} GETs; more than one requires --fetch-deadline")
+                        help=f"at most {MAX_ATTEMPTS} GETs; more than one requires an explicit deadline")
     parser.add_argument("--output", type=pathlib.Path, metavar="FILE",
                         help="save the validated observation to a new file instead of stdout")
     args = parser.parse_args(argv)
-    if args.attempts > 1 and args.fetch_deadline is None:
-        parser.error("--attempts above 1 requires --fetch-deadline")
+    if args.attempts > 1 and args.fetch_deadline is None and args.total_deadline is None:
+        parser.error("--attempts above 1 requires --fetch-deadline or --total-deadline")
     try:
         if args.output is not None:
             check_capture_destination(args.output)
-        expected_network = args.expect_network
-        for attempt in range(1, args.attempts + 1):
-            result = probe(args.api, args.fetch_deadline)
-            if expected_network is None:
-                expected_network = result["network"]
-            elif result["network"] != expected_network:
-                raise ValueError(f"network mismatch: expected {expected_network}, reported {result['network']}")
-            if result["ready_peers"] >= args.min_ready_peers or attempt == args.attempts:
-                break
-            time.sleep(RETRY_DELAY_SECONDS)
+        result = observe_readiness(args)
         if args.output is not None:
             save_new_snapshot(args.output, result)
-    except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:
+    except OBSERVATION_ERRORS as error:
         print(f"readiness unavailable: {error}", file=sys.stderr)
         return 1
     if args.output is None:

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -142,6 +143,7 @@ class ProbeReadinessTest(unittest.TestCase):
                 self.assert_saved_observations(command, responses, paths, ready, zero)
                 if hasattr(signal, "setitimer"):
                     self.assert_retry_observations(command, responses, paths, ready, zero)
+                    self.assert_total_deadline(command, responses, paths, ready, zero)
             finally:
                 server.shutdown()
                 thread.join(timeout=5)
@@ -252,6 +254,58 @@ class ProbeReadinessTest(unittest.TestCase):
                     else:
                         self.assertEqual(result.stderr, "")
                         self.assertEqual(json.loads(target.read_bytes()), final[1])
+
+
+    def assert_total_deadline(self, command, responses, paths, ready, zero):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+
+            def run(*options):
+                paths.clear()
+                return subprocess.run(command + ["--attempts", "2", *options], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            def add(status, value, *callbacks):
+                responses.put((status, json.dumps(value).encode(), *callbacks))
+
+            invalid = run("--total-deadline", "NaN")
+            self.assertEqual((invalid.returncode, invalid.stdout, paths), (2, "", []))
+            self.assertIn("total deadline must be 0.001 to 60 finite seconds", invalid.stderr)
+
+            add(503, zero)
+            add(503, zero)
+            unready = run("--total-deadline", "2")
+            self.assertEqual((unready.returncode, unready.stderr, paths), (3, "", ["/readyz"] * 2))
+            self.assertEqual(json.loads(unready.stdout), zero)
+
+            add(503, zero)
+            backoff = run("--total-deadline", "0.2", "--output", "backoff.json")
+            self.assertEqual((backoff.returncode, backoff.stdout, paths), (1, "", ["/readyz"]))
+            self.assertIn("readiness total deadline exceeded", backoff.stderr)
+            self.assertFalse((root / "backoff.json").exists())
+
+            add(200, ready, lambda: time.sleep(0.45))
+            per_fetch = run("--fetch-deadline", "0.2", "--total-deadline", "2")
+            self.assertEqual((per_fetch.returncode, per_fetch.stdout, paths), (1, "", ["/readyz"]))
+            self.assertIn("fetch deadline exceeded", per_fetch.stderr)
+            self.assertNotIn("total deadline exceeded", per_fetch.stderr)
+
+            # Both input replies fit a per-fetch limit of 1.5 s; the same
+            # pair does not fit 1.25 s once the intervening 250 ms counts.
+            for extra, want in (((), 0), (("--total-deadline", "1.25"), 1)):
+                with self.subTest(extra=extra):
+                    name = f"budget-{want}.json"
+                    target = root / name
+                    add(503, zero)
+                    add(200, ready, lambda: time.sleep(1.1))
+                    result = run("--fetch-deadline", "1.5", "--output", name, *extra)
+                    self.assertEqual((result.returncode, result.stdout, paths), (want, "", ["/readyz"] * 2))
+                    if want:
+                        self.assertIn("readiness total deadline exceeded", result.stderr)
+                        self.assertFalse(target.exists())
+                    else:
+                        self.assertEqual(result.stderr, "")
+                        self.assertEqual(json.loads(target.read_bytes()), ready)
 
 
 if __name__ == "__main__":
