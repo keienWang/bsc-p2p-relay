@@ -239,6 +239,7 @@ def official_test(runner, source, native):
 
 
 LOOPBACK_TEST = 'TestStaticPeerLoopbackRecovery'
+LOOPBACK_REQUIRED_CASES = ('repeated_redial', 'opt_out_stays_connected', 'close_isolates_live_transport')
 
 
 def validate_loopback_output(output):
@@ -250,6 +251,22 @@ def validate_loopback_output(output):
             'loopback recovery requires one RUN then PASS')
     require(lines.count('PASS') == 1 and lines.index('PASS') > passes[0],
             'loopback recovery requires final package PASS')
+    package_pass = lines.index('PASS')
+    # Go can print an overall PASS even when required subtests never run or skip.
+    # A child RUN follows the parent RUN; verbose Go prints child results beneath
+    # the parent summary, before the package PASS.
+    for case in LOOPBACK_REQUIRED_CASES:
+        name = LOOPBACK_TEST + '/' + case
+        child_starts = [i for i, line in enumerate(lines) if line == '=== RUN   ' + name]
+        results = []
+        for i, line in enumerate(lines):
+            result = re.fullmatch(r'\s*--- (PASS|SKIP|FAIL): ' + re.escape(name)
+                                  + r' \([0-9]+(?:\.[0-9]+)?s\)', line)
+            if result:
+                results.append((i, result[1]))
+        require(len(child_starts) == len(results) == 1 and results[0][1] == 'PASS'
+                and starts[0] < child_starts[0] < passes[0] < results[0][0] < package_pass,
+                'loopback recovery requires one RUN then PASS for ' + name)
 
 
 def loopback_test(runner, source, native):

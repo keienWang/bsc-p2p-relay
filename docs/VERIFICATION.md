@@ -5,11 +5,12 @@ failures or passes below are not claims about an untested later commit.
 
 ## Repeated static-peer redial over loopback
 
-The hosted default job runs this tagged test as a separate step. For local
-verification, run it separately from the default suite:
+The hosted default job runs this tagged race test as a separate step. To
+exercise the same gate with a qualified local Linux/amd64 toolchain and cached
+dependencies, run it separately from the default suite:
 
 ```sh
-go test -race -tags loopbackrecovery ./internal/relay -run '^TestStaticPeerLoopbackRecovery$' -count=1 -timeout=2m15s -v
+python3 scripts/linux_build.py loopback-test
 ```
 
 It verifies two transient disconnects and fresh sessions for the same static
@@ -27,6 +28,10 @@ loopback peer stays connected while the only receive-capable peer leaves and a
 fresh receiver joins. The actual HTTP endpoints report connected/ready counts
 of 2/1, 1/0 and 2/1, with readiness statuses 200, 503 and 200 respectively.
 The statistics instance stays stable with no application traffic or submissions.
+
+The gate requires named passes for repeated redial, mixed receive capability,
+and closing an active local transport. Go's overall PASS alone is insufficient:
+the gate fails if any of these cases is absent or skipped.
 
 ## Node lifecycle hardening, 2026-11-11
 

@@ -30,6 +30,18 @@ OFFICIAL_PASS = ('=== RUN   TestOther\n--- PASS: TestOther (0.01s)\n'
                  '=== RUN   TestOfficialBSCTxPoolLoopback\n--- PASS: TestOfficialBSCTxPoolLoopback (35.12s)\n'
                  '=== RUN   TestSoakMsgPipe\n--- SKIP: TestSoakMsgPipe (0.00s)\nPASS\n')
 
+LOOPBACK_NAMES = ('repeated_redial', 'opt_out_stays_connected', 'close_isolates_live_transport')
+
+
+def loopback_output():
+    name = build.LOOPBACK_TEST
+    tests = [f'{name}/{case}' for case in LOOPBACK_NAMES]
+    return ''.join(f'=== RUN   {test}\n' for test in [name, *tests]) + (
+        f'--- PASS: {name} (70.02s)\n'
+        + ''.join(f'    --- PASS: {test} (0.02s)\n' for test in tests)
+        + 'PASS\nok  \tgithub.com/keienWang/bsc-p2p-relay/internal/relay\t71.026s\n'
+    )
+
 
 class FakeRunner(build.BuildRunner):
     def __init__(self, root, env=None, *, failure='', stack=6, mutate=False, event=OFFICIAL_PASS):
@@ -231,7 +243,7 @@ class LinuxBuildTest(unittest.TestCase):
 
     def test_loopback_race_runs_the_exact_test_with_offline_qualified_policy(self):
         name = build.LOOPBACK_TEST
-        event = f'=== RUN   {name}\n--- PASS: {name} (70.02s)\nPASS\n'
+        event = loopback_output()
         runner, output = self.exercise('loopback-test', event=event)
         argv = next(x[1] for x in runner.calls if x[0] == 'static-peer-loopback-test')
         self.assertEqual(argv, ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + build.LINK_POLICY,
@@ -243,6 +255,27 @@ class LinuxBuildTest(unittest.TestCase):
                         event.replace('--- PASS:', '--- SKIP:'), event.rsplit('PASS', 1)[0]):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 build.validate_loopback_output(invalid)
+
+    def test_loopback_rejects_missing_skipped_and_duplicate_subtests_despite_parent_pass(self):
+        name = build.LOOPBACK_TEST
+        event = loopback_output()
+        for case in LOOPBACK_NAMES:
+            full = f'{name}/{case}'
+            run = f'=== RUN   {full}\n'
+            passed = f'    --- PASS: {full} (0.02s)\n'
+            for problem, invalid in (
+                ('missing', event.replace(run, '').replace(passed, '')),
+                ('skipped', event.replace(passed, passed.replace('PASS', 'SKIP'))),
+                ('duplicate', event.replace(passed, passed + passed)),
+                ('pass-without-start', event.replace(run, '')),
+                ('pass-and-skip', event.replace(passed, passed + passed.replace('PASS', 'SKIP'))),
+            ):
+                with self.subTest(case=case, problem=problem):
+                    runner = FakeRunner(self.root, event=invalid)
+                    with mock.patch.object(build, 'tool_version'), contextlib.redirect_stdout(io.StringIO()) as output:
+                        with self.assertRaisesRegex(ValueError, case):
+                            build.dispatch(runner, 'loopback-test', 'bsc-relay')
+                    self.assertNotIn('loopback_test_result=', output.getvalue())
 
     def test_official_runs_whole_alternate_graph_binary_after_elf_check(self):
         env = environment(); env['GOFLAGS'] = '-buildvcs=false -mod=readonly -modfile=' + build.MODFILE + ' -tags=officialtxpool'
