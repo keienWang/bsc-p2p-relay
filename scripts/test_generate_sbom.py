@@ -102,7 +102,7 @@ class NormalizeSBOMTest(unittest.TestCase):
 
 
 class SBOMPublicationTest(unittest.TestCase):
-    def invoke(self, output):
+    def invoke(self, output, *, on_generate=None):
         # Exercise the production command's publication path; stub only the
         # Git/Go/generator tool boundary, so no process reaches a registry.
         def tool_output(command, **_):
@@ -120,6 +120,8 @@ class SBOMPublicationTest(unittest.TestCase):
             if pathlib.Path(command[0]).name == "cyclonedx-gomod":
                 pathlib.Path(command[command.index("-output") + 1]).write_text(
                     json.dumps(dict(fixture(), specVersion="1.6")), encoding="utf-8")
+                if on_generate is not None:
+                    on_generate()
             elif command[0] not in ("git", "go"):
                 raise AssertionError(f"unexpected fixture command: {command}")
             return subprocess.CompletedProcess(command, 0)
@@ -186,6 +188,46 @@ class SBOMPublicationTest(unittest.TestCase):
                 self.invoke(target)
             self.assertTrue(target.is_dir())
             self.assertEqual(list(target.iterdir()), [])
+
+    def test_cli_rejects_existing_and_dangling_output_symlinks_before_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            old = root / "previous.json"
+            old.write_bytes(b"prior manifest")
+            for referent in (old, root / "missing.json"):
+                with self.subTest(referent=referent.name):
+                    target = root / f"linked-{referent.name}"
+                    target.symlink_to(referent.name)
+                    with (mock.patch.object(sys, "argv", ["generate_sbom.py", "--output", str(target)]),
+                          mock.patch.object(generate_sbom.subprocess, "check_output",
+                                            side_effect=AssertionError("must reject before running tools")),
+                          self.assertRaisesRegex(ValueError, "SBOM output must be a regular file")):
+                        generate_sbom.main()
+                    self.assertEqual(target.readlink(), pathlib.Path(referent.name))
+            self.assertEqual(old.read_bytes(), b"prior manifest")
+            self.assertFalse((root / "missing.json").exists())
+
+    def test_cli_refuses_a_link_created_during_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            target, prior = root / "manifest.json", root / "prior.json"
+            prior.write_bytes(b"another manifest")
+            with self.assertRaisesRegex(ValueError, "SBOM output must be a regular file"):
+                self.invoke(target, on_generate=lambda: target.symlink_to(prior.name))
+            self.assertEqual(target.readlink(), pathlib.Path(prior.name))
+            self.assertEqual(prior.read_bytes(), b"another manifest")
+            self.assertEqual(set(root.iterdir()), {target, prior})
+
+    def test_cli_still_accepts_a_regular_file_inside_a_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            actual = root / "actual"
+            actual.mkdir()
+            (root / "alias").symlink_to(actual.name, target_is_directory=True)
+            self.invoke(root / "alias" / "manifest.json")
+            target = actual / "manifest.json"
+            self.assertEqual(json.loads(target.read_text())["specVersion"], "1.6")
+            self.assertTrue((root / "alias").is_symlink())
 
 
 if __name__ == "__main__":

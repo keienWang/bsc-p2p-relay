@@ -33,8 +33,9 @@ Generation fixes `GOWORK=off`, `GOENV=off`, module mode and read-only module loa
 A validated manifest is written and synced in a private stage beside the
 destination, then atomically installed. A failed write or replace preserves
 the previous manifest; successful replacement retains its ordinary permission
-bits. This provides atomic visibility, not power-loss durability for the
-destination directory.
+bits. The destination filename itself must not be a symlink, even if the link
+is dangling. Pass the intended manifest path directly. This provides atomic
+visibility, not power-loss durability for the destination directory.
 
 `make python-test` validates repository/adapter identities, environment isolation, reference rewriting/closure and output location safeguards without contacting the network. Generation metadata and tool binary hashes can differ by tool environment/time. The selected source commit and target build properties are the primary provenance anchors.
 

@@ -139,18 +139,21 @@ def normalize(bom, commit):
     return bom
 
 
-def publish_output(output, bom):
-    """Stage complete JSON before replacing a prior regular manifest."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    mode = None
+def existing_output_mode(output):
+    """Inspect the destination itself, not the file a symlink names."""
     try:
         previous = output.lstat()
     except FileNotFoundError:
-        pass
-    else:
-        if not stat.S_ISREG(previous.st_mode):
-            raise ValueError("SBOM output must be a regular file")
-        mode = previous.st_mode & 0o777
+        return None
+    if not stat.S_ISREG(previous.st_mode):
+        raise ValueError("SBOM output must be a regular file")
+    return previous.st_mode & 0o777
+
+
+def publish_output(output, bom):
+    """Stage complete JSON before replacing a prior regular manifest."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    mode = existing_output_mode(output)
 
     # The same filesystem makes replacement atomic for readers. A private
     # stage prevents exposing a truncated manifest while it is being written.
@@ -173,7 +176,11 @@ def main():
     parser.add_argument("--output", default="docs/SBOM.cdx.json")
     args = parser.parse_args()
     source = pathlib.Path(args.source).resolve()
-    output = pathlib.Path(args.output).resolve()
+    requested_output = pathlib.Path(args.output)
+    # Canonicalize the parent but keep the named destination component intact.
+    # Resolving the whole path here would bypass the no-symlink output check.
+    output = requested_output.parent.resolve() / requested_output.name
+    existing_output_mode(output)
     env = build_environment(os.environ)
     verify_origin(subprocess.check_output(["git", "-C", str(source), "remote", "get-url", "origin"], text=True).strip())
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "--verify", args.commit + "^{commit}"], text=True).strip()
