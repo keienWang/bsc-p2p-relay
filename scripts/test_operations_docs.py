@@ -20,6 +20,19 @@ class OperationsDocsTest(unittest.TestCase):
     def test_current_source_contract(self):
         self.assertEqual(check_contracts(*self.contract), [])
 
+    def test_shared_docs_target_checks_both_contracts_before_ci_module_download(self):
+        make = (ROOT / "Makefile").read_text()
+        recipe = make.split("\ncheck-docs:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(recipe.splitlines(), [
+            "\tpython3 scripts/check_operations_docs.py",
+            "\tpython3 scripts/check_stats_docs.py",
+        ])
+        self.assertIn("check-docs", next(line for line in make.splitlines()
+                                         if line.startswith("check:")).split()[1:])
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        default = workflow.split("  official_txpool:", 1)[0]
+        self.assertLess(default.index("run: make check-docs"), default.index("run: go mod download"))
+
     def test_wrong_flag_and_missing_health_field_fail(self):
         changed = self.contract.copy()
         changed[0] = changed[0].replace("| `--cache-ttl` |", "| `--cache-life` |")

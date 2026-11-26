@@ -493,8 +493,13 @@ share only necessary, reviewed details through an appropriate channel. Follow
 From the repository root:
 
 ```sh
-python3 scripts/check_operations_docs.py
+make check-docs
 ```
+
+This runs both the operations and [statistics](OBSERVABILITY.md) source and
+link checks. It needs only Make and Python 3, with no relay listener, Go
+toolchain, or network access. The default CI job runs the same target before
+downloading Go modules; `make check` also includes it.
 
 After building the delivery artifact, also run
 `python3 scripts/check_flag_defaults.py ./bsc-relay` to compare the flag

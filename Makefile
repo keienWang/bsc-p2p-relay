@@ -1,6 +1,6 @@
 TEST_TIMEOUT ?= 300s
 
-.PHONY: build build-linux-amd64 test race race-linux-amd64 vet check fuzz smoke vuln dependencies sbom python-test
+.PHONY: build build-linux-amd64 test race race-linux-amd64 vet check fuzz smoke vuln dependencies sbom python-test check-docs
 build:
 	python3 scripts/linux_build.py build
 build-linux-amd64:
@@ -13,7 +13,7 @@ race-linux-amd64:
 	python3 scripts/linux_build.py race
 vet:
 	go vet ./...
-check: vet race build python-test
+check: check-docs vet race build python-test
 	@test -z "$$(gofmt -l cmd internal)"
 	go mod verify
 	python3 scripts/check_runtime_dependencies.py
@@ -25,6 +25,10 @@ vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 dependencies:
 	python3 scripts/dependencies.py --output docs/DEPENDENCIES.json
+
+check-docs:
+	python3 scripts/check_operations_docs.py
+	python3 scripts/check_stats_docs.py
 
 python-test:
 	python3 -m unittest discover -s scripts -p 'test_*.py'

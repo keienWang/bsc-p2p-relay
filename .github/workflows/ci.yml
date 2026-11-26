@@ -17,6 +17,8 @@ jobs:
         run: |
           go version
           test "$(go env GOVERSION)" = go1.26.11
+      - name: Check runbook and statistics documentation
+        run: make check-docs
       - run: go mod download
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
