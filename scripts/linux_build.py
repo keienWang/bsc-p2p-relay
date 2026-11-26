@@ -178,12 +178,24 @@ def existing_output(path):
     return regular_digest(path)
 
 
+def output_directory_identity(path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    require(stat.S_ISDIR(info.st_mode), 'output parent must be a regular directory, not a symlink')
+    return info.st_dev, info.st_ino
+
+
 def build(runner, output, source, native):
     target = runner.root / output
     require(output in OUTPUTS, 'unsupported output path')
     # Only fixed root/bin destinations are supported. Do not follow a bin symlink.
-    require(not target.parent.is_symlink(), 'output parent must not be a symlink')
-    target.parent.mkdir(exist_ok=True)
+    parent = target.parent
+    if output_directory_identity(parent) is None:
+        parent.mkdir(exist_ok=True)
+    original_parent = output_directory_identity(parent)
+    require(original_parent is not None, 'output parent disappeared')
     old = existing_output(target)
     # A private temporary directory on the destination filesystem keeps the
     # install atomic. No build/check failure replaces the previous good artifact.
@@ -192,12 +204,16 @@ def build(runner, output, source, native):
         argv = ['go', 'build', '-mod=readonly', '-trimpath', '-buildvcs=false',
                 '-ldflags=' + LINK_POLICY, '-o', str(staged), './cmd/bsc-relay']
         runner.run('qualified-relay-build', argv, 180)
+        require(output_directory_identity(parent) == original_parent,
+                'output parent changed during build; not installing artifact')
         artifact = metadata(runner, staged)
         require(staged.stat().st_mode & 0o111, 'built artifact is not executable')
         require(inspect_file(staged) == artifact, 'staged artifact changed before install')
         check_archive(native)
         require(source_commit(runner, 'source-commit-before-install') == source['commit'],
                 'source HEAD changed during build; not replacing the previous artifact')
+        require(output_directory_identity(parent) == original_parent,
+                'output parent changed during build; not installing artifact')
         require(existing_output(target) == old, 'output changed concurrently; not replacing it')
         # All policy checks precede replacement. There is no fallback to an old
         # binary or unchecked build on failure. A rename is not a runtime test.

@@ -86,7 +86,9 @@ filesystem. Only after every check passes and the old destination is confirmed
 unchanged is the new artifact atomically renamed into place. Build, metadata,
 ELF-check or rename failure leaves the old binary available and reports failure;
 it does not call that old binary a successful new build. Symlink destinations or
-output-parent symlinks are rejected. The qualified build also compares HEAD
+output-parent symlinks are rejected. An observed replacement of the output
+directory during the build also cancels installation, even if that destination
+had no prior artifact. The qualified build also compares HEAD
 with the initial commit immediately before installation and rejects a changed
 checkout. This does not detect edits that leave HEAD unchanged, or a switch
 away from the commit and back between the two checks. These are

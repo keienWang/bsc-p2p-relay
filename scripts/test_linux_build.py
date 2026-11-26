@@ -239,6 +239,33 @@ class LinuxBuildTest(unittest.TestCase):
         (self.root / 'bin').symlink_to(self.root, target_is_directory=True)
         with self.assertRaises(ValueError): build.build(FakeRunner(self.root), 'bin/bsc-relay', {}, None)
 
+    def test_output_parent_replacement_aborts_even_when_both_targets_are_absent(self):
+        original = self.root / 'bin'
+        original.mkdir()
+        moved = self.root / 'previous-bin'
+        runner = FakeRunner(self.root)
+        source_commit = build.source_commit
+
+        def switch_parent(runner, label):
+            value = source_commit(runner, label)
+            if label == 'source-commit-before-install':
+                original.rename(moved)
+                original.mkdir()
+            return value
+
+        with (mock.patch.object(build, 'tool_version'),
+              mock.patch.object(build, 'source_commit', side_effect=switch_parent),
+              mock.patch.object(build.os, 'replace') as replace,
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            with self.assertRaisesRegex(ValueError, 'output parent changed during build'):
+                build.dispatch(runner, 'build-linux-amd64', 'bin/bsc-relay')
+
+        replace.assert_not_called()
+        self.assertNotIn('installed=', output.getvalue())
+        self.assertFalse((original / 'bsc-relay').exists())
+        self.assertFalse((moved / 'bsc-relay').exists())
+        self.assertEqual(list(original.iterdir()), [])
+
     def test_concurrently_changed_destination_is_not_overwritten(self):
         original = build.metadata
         def altered(*args, **kwargs):
