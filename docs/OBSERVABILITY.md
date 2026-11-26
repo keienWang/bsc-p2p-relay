@@ -170,6 +170,9 @@ request. Even an empty query or fragment delimiter is not an endpoint literal.
 The collector makes one GET to `/v1/stats`, ignores environment HTTP proxies and
 does not follow redirects. It reuses the smoke reader's status/header/schema,
 framing and 16 KiB response checks, with its two-second socket idle timeout.
+The collector and readiness probe both reject repeated `Content-Type`,
+`Cache-Control`, or `X-Content-Type-Options` headers, even if the first value
+looks correct. The relay emits one of each for these local JSON responses.
 For an optional total limit, use `--fetch-deadline 5`. On platforms with POSIX
 interval timers this bounds the connection, response headers, body and snapshot
 validation for one fetch, including slow responses that stay below the idle

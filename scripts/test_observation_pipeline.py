@@ -12,6 +12,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from test_probe_readiness import health
 from test_stats_delta import sample
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent
@@ -27,7 +28,7 @@ class ObservationPipelineTests(unittest.TestCase):
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                if self.path != "/v1/stats":
+                if self.path not in {"/v1/stats", "/readyz"}:
                     self.send_error(404)
                     return
                 try:
@@ -35,11 +36,14 @@ class ObservationPipelineTests(unittest.TestCase):
                 except queue.Empty:
                     self.send_error(503)
                     return
+                payload, headers = payload if isinstance(payload, tuple) else (payload, ())
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Length", str(len(payload)))
+                for field, value in headers:
+                    self.send_header(field, value)
                 self.end_headers()
                 self.wfile.write(payload)
 
@@ -71,6 +75,32 @@ class ObservationPipelineTests(unittest.TestCase):
         result = self.run_cli("capture_stats.py", self.address, filename)
         self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
         self.assertEqual(json.loads((self.work / filename).read_bytes()), value)
+
+    def test_duplicate_policy_headers_never_publish_observations(self):
+        for script, value, output_arg in (
+            ("capture_stats.py", sample(), ["obs.json"]),
+            ("probe_readiness.py", health(ready_peers=1, connected_peers=1),
+             ["--output", "obs.json"]),
+        ):
+            payload = json.dumps(value).encode()
+            for field, extra in (
+                ("Content-Type", "text/plain"),
+                ("Cache-Control", "public"),
+                ("X-Content-Type-Options", "nosniff"),
+            ):
+                with self.subTest(script=script, field=field):
+                    self.responses.put((payload, ((field.lower(), extra),)))
+                    result = self.run_cli(script, self.address, *output_arg)
+                    self.assertEqual((result.returncode, result.stdout), (1, ""))
+                    self.assertIn("duplicate", result.stderr)
+                    self.assertIn(field, result.stderr)
+                    self.assertEqual(list(self.work.iterdir()), [])
+            self.responses.put(payload)
+            result = self.run_cli(script, self.address, *output_arg)
+            self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
+            target = self.work / "obs.json"
+            self.assertTrue(target.is_file())
+            target.unlink()
 
     def test_capture_to_delta_preserves_exact_integers_and_nanoseconds(self):
         before = sample()

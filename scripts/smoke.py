@@ -65,10 +65,16 @@ def decode_stats(payload):
 
 def read_observation_body(response, label):
     """Validate shared headers/framing and bound one observation body."""
-    if (response.headers.get("Content-Type") != "application/json"
-            or response.headers.get("Cache-Control") != "no-store"
-            or response.headers.get("X-Content-Type-Options") != "nosniff"):
-        raise AssertionError(f"invalid {label} HTTP response")
+    # Use the full header list: Message.get() returns only one value,
+    # which can hide duplicate declarations on a broken local relay path.
+    for field, expected in (("Content-Type", "application/json"),
+                            ("Cache-Control", "no-store"),
+                            ("X-Content-Type-Options", "nosniff")):
+        values = response.headers.get_all(field, [])
+        if len(values) > 1:
+            raise ValueError(f"duplicate {label} {field}")
+        if values != [expected]:
+            raise AssertionError(f"invalid {label} HTTP response")
     # This smoke supports a single decimal Content-Length or an EOF-delimited
     # response, not arbitrary transfer codings. Reject TE, including TE+CL,
     # instead of silently trusting one of two conflicting framing signals.
