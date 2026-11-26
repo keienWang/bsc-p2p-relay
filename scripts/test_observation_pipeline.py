@@ -102,6 +102,27 @@ class ObservationPipelineTests(unittest.TestCase):
             self.assertTrue(target.is_file())
             target.unlink()
 
+    def test_non_utf8_wire_json_is_rejected_without_publishing(self):
+        for script, value, output_arg in (
+            ("capture_stats.py", sample(), ["obs.json"]),
+            ("probe_readiness.py", health(ready_peers=1, connected_peers=1),
+             ["--output", "obs.json"]),
+        ):
+            body = json.dumps(value)
+            for encoding in ("utf-16", "utf-16-le", "utf-32", "utf-8-sig"):
+                with self.subTest(script=script, encoding=encoding):
+                    self.responses.put(body.encode(encoding))
+                    result = self.run_cli(script, self.address, *output_arg)
+                    self.assertEqual((result.returncode, result.stdout), (1, ""))
+                    self.assertIn("UTF-8 JSON", result.stderr)
+                    self.assertEqual(list(self.work.iterdir()), [])
+            self.responses.put(body.encode("utf-8"))
+            result = self.run_cli(script, self.address, *output_arg)
+            self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
+            target = self.work / "obs.json"
+            self.assertEqual(json.loads(target.read_bytes()), value)
+            target.unlink()
+
     def test_capture_to_delta_preserves_exact_integers_and_nanoseconds(self):
         before = sample()
         after = copy.deepcopy(before)

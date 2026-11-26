@@ -173,6 +173,9 @@ framing and 16 KiB response checks, with its two-second socket idle timeout.
 The collector and readiness probe both reject repeated `Content-Type`,
 `Cache-Control`, or `X-Content-Type-Options` headers, even if the first value
 looks correct. The relay emits one of each for these local JSON responses.
+Both tools expect the relay's UTF-8 JSON on HTTP, without a byte-order mark;
+they do not auto-detect and accept other encodings. Offline snapshot loading
+is unchanged.
 For an optional total limit, use `--fetch-deadline 5`. On platforms with POSIX
 interval timers this bounds the connection, response headers, body and snapshot
 validation for one fetch, including slow responses that stay below the idle

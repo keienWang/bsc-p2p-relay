@@ -98,7 +98,15 @@ def read_observation_body(response, label):
         raise AssertionError(f"unexpectedly large {label} response")
     if expected_length is not None and len(payload) != expected_length:
         raise ValueError(f"incomplete {label} Content-Length body")
-    return payload
+    # The relay writes UTF-8 JSON without a byte-order mark. Decode it
+    # explicitly so Python cannot silently accept UTF-16/32 or a UTF-8 BOM.
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} response must be UTF-8 JSON") from error
+    if text.startswith("\ufeff") or "\x00" in text:
+        raise ValueError(f"{label} response must be UTF-8 JSON without a BOM or raw NUL")
+    return text
 
 
 def read_stats(opener, base):
