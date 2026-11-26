@@ -56,6 +56,24 @@ sys.exit(int(os.environ["FIXTURE_EXIT"]))
                 self.assertEqual(self.existing.read_bytes(), self.previous)
                 self.assertEqual(list(self.existing.parent.iterdir()), [self.existing])
 
+    def test_machine_specific_local_replacements_never_publish_or_echo_paths(self):
+        for location in ("/private/build/module", "../outside", "./compat/../outside",
+                         "./compat//module", "./", "C:/work/module", "./C:/module",
+                         r"./compat\module", r"\\server\share"):
+            with self.subTest(location=location):
+                unsafe = dict(REPLACED, Replace={"Path": location})
+                payload = json.dumps(MODULE) + "\n" + json.dumps(unsafe)
+                for command in (("make", "dependencies"), (sys.executable, "scripts/dependencies.py")):
+                    result = self.run_tool(*command, payload=payload)
+                    self.assertNotEqual(result.returncode, 0)
+                    if command[0] == sys.executable:
+                        self.assertEqual(result.stdout, "")
+                    self.assertIn("portable ./path within the checkout", result.stderr)
+                    if location != "./":
+                        self.assertNotIn(location, result.stderr)
+                    self.assertEqual(self.existing.read_bytes(), self.previous)
+                    self.assertEqual(list(self.existing.parent.iterdir()), [self.existing])
+
     def test_make_installs_same_json_as_stdout_without_machine_paths(self):
         payload = json.dumps(MODULE) + "\n" + json.dumps(REPLACED)
         stdout = self.run_tool(sys.executable, "scripts/dependencies.py", payload=payload)

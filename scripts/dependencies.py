@@ -9,6 +9,20 @@ import sys
 from local_json import destination_path, existing_output_mode, publish_json
 
 
+def portable_replacement(replacement):
+    if not isinstance(replacement, dict) or not isinstance(replacement.get("Path"), str) or not replacement["Path"]:
+        raise ValueError("go list returned a replacement without a path")
+    target = replacement["Path"]
+    if not replacement.get("Version"):
+        # Go uses a filesystem path when the replacement has no version.
+        # Keep the adapter's portable spelling but never persist an absolute
+        # directory, a parent traversal, or a platform-specific path.
+        parts = target[2:].split("/") if target.startswith("./") else []
+        if not parts or any(part in {"", ".", ".."} for part in parts) or "\\" in target or ":" in target:
+            raise ValueError("local replacement must use a portable ./path within the checkout")
+    return {key: replacement[key] for key in ("Path", "Version", "Sum") if key in replacement}
+
+
 def inventory(text):
     decoder = json.JSONDecoder()
     modules = []
@@ -19,11 +33,7 @@ def inventory(text):
             raise ValueError("go list returned a module without a path")
         record = {key: module[key] for key in ("Path", "Version", "Sum", "Main") if key in module}
         if "Replace" in module:
-            replacement = module["Replace"]
-            if (not isinstance(replacement, dict) or not isinstance(replacement.get("Path"), str)
-                    or not replacement["Path"]):
-                raise ValueError("go list returned a replacement without a path")
-            record["Replace"] = {key: replacement[key] for key in ("Path", "Version", "Sum") if key in replacement}
+            record["Replace"] = portable_replacement(module["Replace"])
         modules.append(record)
     if not modules:
         raise ValueError("go list returned no modules")

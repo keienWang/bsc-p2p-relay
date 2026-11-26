@@ -55,7 +55,10 @@ intended clean source revision when making a release; running `make dependencies
 in another checkout describes that checkout's selected module graph instead.
 It atomically updates the regular `docs/DEPENDENCIES.json` file only after
 collection and staging succeed. A failed collection or write preserves the
-previous inventory. For stdout without updating that file, run
+previous inventory. A local replacement must be expressed as a portable
+`./path` without parent traversal, so an absolute workstation path or
+an out-of-tree relative path is not written into the inventory. This checks
+the reported path spelling, not filesystem or build provenance. For stdout without updating that file, run
 `python3 scripts/dependencies.py` directly.
 
 For this 2026-11-10 refresh, the CycloneDX document contains the application plus
