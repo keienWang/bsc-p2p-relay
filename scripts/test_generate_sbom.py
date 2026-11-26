@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 import generate_sbom
+import local_json
 from generate_sbom import (ADAPTER, MODULE, REPOSITORY, build_environment,
                            normalize, validate_output, verify_modules, verify_origin)
 
@@ -159,7 +160,7 @@ class SBOMPublicationTest(unittest.TestCase):
             root = pathlib.Path(directory).resolve()
             target = root / "manifest.json"
             target.write_bytes(b"prior manifest")
-            with (mock.patch.object(generate_sbom.os, "replace",
+            with (mock.patch.object(local_json.os, "replace",
                                     side_effect=OSError(errno.EIO, "fixture publication error")),
                   self.assertRaisesRegex(OSError, "fixture publication error")):
                 self.invoke(target)

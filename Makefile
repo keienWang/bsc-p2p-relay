@@ -24,7 +24,7 @@ smoke: build
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 dependencies:
-	python3 scripts/dependencies.py > docs/DEPENDENCIES.json
+	python3 scripts/dependencies.py --output docs/DEPENDENCIES.json
 
 python-test:
 	python3 -m unittest discover -s scripts -p 'test_*.py'

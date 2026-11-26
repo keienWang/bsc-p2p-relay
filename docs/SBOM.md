@@ -53,6 +53,10 @@ that expanded integration-test graph has its own evidence under
 `integration/officialtxpool/`. Regenerate and verify the inventory from the
 intended clean source revision when making a release; running `make dependencies`
 in another checkout describes that checkout's selected module graph instead.
+It atomically updates the regular `docs/DEPENDENCIES.json` file only after
+collection and staging succeed. A failed collection or write preserves the
+previous inventory. For stdout without updating that file, run
+`python3 scripts/dependencies.py` directly.
 
 For this 2026-11-10 refresh, the CycloneDX document contains the application plus
 83 components: 81 external Go modules, the project-owned STUN adapter and the Go

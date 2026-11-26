@@ -7,10 +7,11 @@ import os
 import pathlib
 import re
 import shlex
-import stat
 import subprocess
 import tempfile
 import urllib.parse
+
+from local_json import destination_path, existing_output_mode, publish_json
 
 REPOSITORY = "https://github.com/keienWang/bsc-p2p-relay"
 GENERATOR = "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0"
@@ -139,36 +140,6 @@ def normalize(bom, commit):
     return bom
 
 
-def existing_output_mode(output):
-    """Inspect the destination itself, not the file a symlink names."""
-    try:
-        previous = output.lstat()
-    except FileNotFoundError:
-        return None
-    if not stat.S_ISREG(previous.st_mode):
-        raise ValueError("SBOM output must be a regular file")
-    return previous.st_mode & 0o777
-
-
-def publish_output(output, bom):
-    """Stage complete JSON before replacing a prior regular manifest."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    mode = existing_output_mode(output)
-
-    # The same filesystem makes replacement atomic for readers. A private
-    # stage prevents exposing a truncated manifest while it is being written.
-    with tempfile.TemporaryDirectory(prefix=".relay-sbom-", dir=output.parent) as directory:
-        staged = pathlib.Path(directory) / output.name
-        with staged.open("w", encoding="utf-8") as stream:
-            json.dump(bom, stream, indent=2)
-            stream.write("\n")
-            stream.flush()
-            if mode is not None:
-                staged.chmod(mode)
-            os.fsync(stream.fileno())
-        os.replace(staged, output)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", default=".", help="local Git checkout containing the committed source")
@@ -176,11 +147,8 @@ def main():
     parser.add_argument("--output", default="docs/SBOM.cdx.json")
     args = parser.parse_args()
     source = pathlib.Path(args.source).resolve()
-    requested_output = pathlib.Path(args.output)
-    # Canonicalize the parent but keep the named destination component intact.
-    # Resolving the whole path here would bypass the no-symlink output check.
-    output = requested_output.parent.resolve() / requested_output.name
-    existing_output_mode(output)
+    output = destination_path(args.output)
+    existing_output_mode(output, "SBOM")
     env = build_environment(os.environ)
     verify_origin(subprocess.check_output(["git", "-C", str(source), "remote", "get-url", "origin"], text=True).strip())
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "--verify", args.commit + "^{commit}"], text=True).strip()
@@ -207,7 +175,7 @@ def main():
             raise ValueError("generator changed the selected source tree")
         bom = normalize(json.loads(raw.read_text()), commit)
         validate_output(bom)
-    publish_output(output, bom)
+    publish_json(output, bom, label="SBOM", prefix=".relay-sbom-")
     print(f"Generated CycloneDX {bom['specVersion']} for source {commit}: {output}")
 
 
