@@ -116,12 +116,17 @@ def check_archive(native):
     emit('herumi_archive_after', before)
 
 
+def source_commit(runner, label):
+    commit = runner.run(label, ['git', 'rev-parse', '--verify', 'HEAD']).strip()
+    require(bool(re.fullmatch('[0-9a-f]{40}', commit)), 'invalid source commit')
+    return commit
+
+
 def source_identity(runner):
-    identity = {}
-    for key, arg in [('commit', 'HEAD'), ('tree', 'HEAD^{tree}')]:
-        value = runner.run('source-' + key, ['git', 'rev-parse', '--verify', arg]).strip()
-        require(bool(re.fullmatch('[0-9a-f]{40}', value)), 'invalid source ' + key)
-        identity[key] = value
+    commit = source_commit(runner, 'source-commit')
+    tree = runner.run('source-tree', ['git', 'rev-parse', '--verify', commit + '^{tree}']).strip()
+    require(bool(re.fullmatch('[0-9a-f]{40}', tree)), 'invalid source tree')
+    identity = {'commit': commit, 'tree': tree}
     identity['status'] = runner.run('source-status', ['git', 'status', '--porcelain', '--untracked-files=normal'])
     identity['clean_before_build'] = not identity['status'].strip()
     identity['binding'] = 'checkout context only; not an exact compiled-source attestation'
@@ -189,9 +194,11 @@ def build(runner, output, source, native):
         runner.run('qualified-relay-build', argv, 180)
         artifact = metadata(runner, staged)
         require(staged.stat().st_mode & 0o111, 'built artifact is not executable')
-        require(existing_output(target) == old, 'output changed concurrently; not replacing it')
         require(inspect_file(staged) == artifact, 'staged artifact changed before install')
         check_archive(native)
+        require(source_commit(runner, 'source-commit-before-install') == source['commit'],
+                'source HEAD changed during build; not replacing the previous artifact')
+        require(existing_output(target) == old, 'output changed concurrently; not replacing it')
         # All policy checks precede replacement. There is no fallback to an old
         # binary or unchecked build on failure. A rename is not a runtime test.
         os.replace(staged, target)

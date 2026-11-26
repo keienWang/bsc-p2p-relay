@@ -44,7 +44,7 @@ def loopback_output():
 
 
 class FakeRunner(build.BuildRunner):
-    def __init__(self, root, env=None, *, failure='', stack=6, mutate=False, event=OFFICIAL_PASS):
+    def __init__(self, root, env=None, *, failure='', stack=6, mutate=False, event=OFFICIAL_PASS, head_after=None):
         super().__init__(root)
         self.environment = env or environment()
         self.calls = []
@@ -53,6 +53,7 @@ class FakeRunner(build.BuildRunner):
         self.archive.parent.mkdir(parents=True, exist_ok=True)
         self.archive.write_bytes(b'fake native archive')
         self.failure, self.stack, self.mutate, self.event = failure, stack, mutate, event
+        self.head_after = head_after if head_after is not None else '1' * 40
 
     def run(self, label, argv, seconds=15):
         argv = [str(arg) for arg in argv]
@@ -66,6 +67,7 @@ class FakeRunner(build.BuildRunner):
         if label == 'cc-selected-linker': return 'ld\n'
         if label == 'herumi-module': return json.dumps({'Path': build.HERUMI, 'Version': 'v1.31.0', 'Sum': build.HERUMI_SUM, 'Dir': str(self.root / 'module')})
         if label == 'source-commit': return '1' * 40 + '\n'
+        if label == 'source-commit-before-install': return self.head_after + '\n'
         if label == 'source-tree': return '2' * 40 + '\n'
         if label == 'source-status': return ''
         if label in ('qualified-relay-build', 'official-package-build'):
@@ -199,6 +201,29 @@ class LinuxBuildTest(unittest.TestCase):
         with mock.patch.object(build, 'metadata', side_effect=changed), self.assertRaisesRegex(ValueError, 'archive changed'):
             self.exercise()
         self.assertEqual(self.old.read_bytes(), b'previous good binary')
+
+    def test_build_resolves_tree_from_start_commit_and_rechecks_head_before_install(self):
+        runner, output = self.exercise('build-linux-amd64')
+        calls = {label: argv for label, argv, _ in runner.calls}
+        self.assertEqual(calls['source-tree'], ['git', 'rev-parse', '--verify', '1' * 40 + '^{tree}'])
+        self.assertEqual(calls['source-commit-before-install'], ['git', 'rev-parse', '--verify', 'HEAD'])
+        labels = list(calls)
+        self.assertLess(labels.index('artifact-dynamic'), labels.index('source-commit-before-install'))
+        self.assertIn('installed=', output)
+
+    def test_head_switch_during_build_leaves_prior_artifact_and_no_success(self):
+        for initial_after, reason in (
+            ('a' * 40, 'source HEAD changed during build'),
+            ('invalid', 'invalid source commit'),
+        ):
+            with self.subTest(initial_after=initial_after):
+                runner = FakeRunner(self.root, head_after=initial_after)
+                with mock.patch.object(build, 'tool_version'), contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(ValueError, reason):
+                        build.dispatch(runner, 'build-linux-amd64', 'bsc-relay')
+                self.assertNotIn('installed=', output.getvalue())
+                self.assertEqual(self.old.read_bytes(), b'previous good binary')
+                self.assertFalse(list(self.root.glob('.relay-build-*')))
 
     def test_failed_atomic_replace_preserves_old_artifact(self):
         with mock.patch.object(build.os, 'replace', side_effect=OSError('mock rename failure')), self.assertRaises(OSError):
