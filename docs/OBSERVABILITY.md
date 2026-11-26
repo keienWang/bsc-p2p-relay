@@ -209,7 +209,11 @@ snapshot only if both `instance_id` and `created_at` match. After a restart,
 start a new baseline instead of treating a new process as a continuation.
 This is a local correlation check, not authentication or a counter-delta check;
 use `stats_delta.py` to compare validated snapshots. Ordinary capture without
-the option is unchanged.
+the option is unchanged. With `--same-instance-as`, also pass
+`--require-forward-time` to refuse to publish a sample whose recorded
+`observed_at` is equal to or earlier than the baseline (including fractional
+seconds up to nanosecond precision). This tests ordering between the two saved
+wall-clock values, not sample age, elapsed time, or counter monotonicity.
 
 ### Collector/comparator command-line regression
 

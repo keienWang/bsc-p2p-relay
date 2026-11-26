@@ -250,6 +250,35 @@ class ObservationPipelineTests(unittest.TestCase):
         self.assertEqual((self.work / "baseline.json").read_bytes(), original)
         self.assertFalse(list(self.work.glob(".relay-stats-*")))
 
+    def test_capture_can_require_a_strictly_later_baseline_time(self):
+        before = dict(sample(), observed_at="2026-11-20T00:02:03.123456780Z")
+        self.capture("before.json", before)
+        baseline = (self.work / "before.json").read_bytes()
+        command = ("capture_stats.py", self.address, "after.json", "--require-forward-time")
+        next_value = dict(before, observed_at="2026-11-20T00:02:03.123456781Z")
+        self.responses.put(json.dumps(next_value).encode())
+        missing = self.run_cli(*command)
+        self.assertEqual((missing.returncode, missing.stdout), (2, ""))
+        self.assertIn("requires --same-instance-as", missing.stderr)
+        command += ("--same-instance-as", "before.json")
+        advanced = self.run_cli(*command)
+        self.assertEqual((advanced.returncode, advanced.stderr), (0, ""), advanced.stdout)
+        self.assertEqual(json.loads((self.work / "after.json").read_bytes()), next_value)
+        (self.work / "after.json").unlink()
+        for stamp in ("2026-11-20T00:02:03.12345678Z", "2026-11-20T00:02:03.123456779Z"):
+            with self.subTest(stamp=stamp):
+                value = dict(before, observed_at=stamp)
+                self.responses.put(json.dumps(value).encode())
+                rejected = self.run_cli(*command)
+                self.assertEqual((rejected.returncode, rejected.stdout), (1, ""))
+                self.assertIn("strictly later than baseline", rejected.stderr)
+                self.assertEqual(list(self.work.iterdir()), [self.work / "before.json"])
+                self.assertEqual((self.work / "before.json").read_bytes(), baseline)
+        self.responses.put(json.dumps(before).encode())
+        default = self.run_cli("capture_stats.py", self.address, "after.json",
+                               "--same-instance-as", "before.json")
+        self.assertEqual((default.returncode, default.stderr), (0, ""), default.stdout)
+
     def test_duplicate_capture_preserves_baseline_and_cli_fails(self):
         self.capture("before.json", sample())
         original = (self.work / "before.json").read_bytes()

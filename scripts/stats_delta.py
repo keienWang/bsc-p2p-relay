@@ -6,7 +6,8 @@ import datetime
 import json
 import sys
 
-from capture_stats import read_snapshot, require_same_instance, save_new_snapshot
+from capture_stats import (observed_time_key, read_snapshot, require_same_instance,
+                           save_new_snapshot)
 from smoke import STATS_HTTP_FIELDS, STATS_SUBMIT_FIELDS
 
 SELECTABLE_COUNTERS = tuple(sorted(
@@ -39,12 +40,6 @@ def parse_gap_ms(digits, limit):
     if not value:
         raise argparse.ArgumentTypeError(message)
     return value
-
-
-def observed_time_key(stamp):
-    """Sort validated v1 UTC timestamps without dropping nanoseconds."""
-    seconds, _, fraction = stamp[:-1].partition(".")
-    return seconds, fraction.ljust(9, "0")
 
 
 def observed_gap_ns(before, after):

@@ -75,6 +75,12 @@ def require_same_instance(before, after):
         raise ValueError("instance creation metadata changed")
 
 
+def observed_time_key(stamp):
+    """Sort validated v1 UTC timestamps without dropping nanoseconds."""
+    seconds, _, fraction = stamp[:-1].partition(".")
+    return seconds, fraction.ljust(9, "0")
+
+
 def check_capture_destination(target):
     """Reject unusable local paths before making a read-only HTTP request."""
     try:
@@ -147,7 +153,10 @@ def fetch_time_limit(seconds):
             signal.signal(alarm, previous)
 
 
-def capture(address, destination, *, same_instance_as=None, fetch_deadline=None):
+def capture(address, destination, *, same_instance_as=None, fetch_deadline=None,
+            require_forward_time=False):
+    if require_forward_time and same_instance_as is None:
+        raise ValueError("forward observation time requires a baseline snapshot")
     base = loopback_base(address)
     baseline = None
     if same_instance_as is not None:
@@ -162,6 +171,9 @@ def capture(address, destination, *, same_instance_as=None, fetch_deadline=None)
         value = read_stats(opener, base)
     if baseline is not None:
         require_same_instance(baseline, value)
+        if (require_forward_time
+                and observed_time_key(value["observed_at"]) <= observed_time_key(baseline["observed_at"])):
+            raise ValueError("captured observed_at must be strictly later than baseline observed_at")
     save_new_snapshot(destination, value)
 
 
@@ -171,12 +183,16 @@ def main(argv=None):
     parser.add_argument("output", help="new snapshot filename; existing files are never overwritten")
     parser.add_argument("--same-instance-as", metavar="BASELINE",
                         help="publish only if the returned instance matches this saved snapshot")
+    parser.add_argument("--require-forward-time", action="store_true",
+                        help="require observed_at to advance relative to --same-instance-as")
     parser.add_argument("--fetch-deadline", type=parse_fetch_deadline, metavar="SECONDS",
                         help="optional POSIX wall-clock limit for the fetch, 0.001 to 60 seconds")
     args = parser.parse_args(argv)
+    if args.require_forward_time and args.same_instance_as is None:
+        parser.error("--require-forward-time requires --same-instance-as")
     try:
         capture(args.api, args.output, same_instance_as=args.same_instance_as,
-                fetch_deadline=args.fetch_deadline)
+                fetch_deadline=args.fetch_deadline, require_forward_time=args.require_forward_time)
     except (OSError, ValueError, AssertionError, RecursionError, http.client.HTTPException) as error:
         print("statistics capture failed: " + str(error), file=sys.stderr)
         return 1
