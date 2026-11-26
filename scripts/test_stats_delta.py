@@ -152,6 +152,61 @@ class StatsDeltaTests(unittest.TestCase):
                     self.assertIn("positive ASCII decimal uint64", bad.stderr)
                     self.assertNotIn("before snapshot:", bad.stderr)
 
+    def test_maximum_recorded_gap_cli_rejects_stale_and_reversed_snapshots(self):
+        command = [sys.executable, "-O", str(pathlib.Path(stats_delta.__file__).resolve())]
+        max_option, min_option = "--max-observation-gap-ms", "--min-observation-gap-ms"
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            before["observed_at"] = "2026-11-19T23:59:59.999000001Z"
+
+            def run(*args, second="after.json"):
+                for filename, value in (("before.json", before), ("after.json", after)):
+                    (root / filename).write_text(json.dumps(value), encoding="utf-8")
+                return subprocess.run(command + ["before.json", second, *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            for timestamp, expected_gap in (
+                ("2026-11-20T00:00:00.000000002Z", "1000001"),
+                ("2026-11-20T01:00:00Z", "3600000999999"),
+            ):
+                with self.subTest(timestamp=timestamp):
+                    after["observed_at"] = timestamp
+                    self.assertEqual(run(min_option, "1", "--require-unchanged").returncode, 0)
+                    stale = run(max_option, "1", "--require-unchanged", "--output", "stale.json")
+                    self.assertEqual((stale.returncode, stale.stdout), (1, ""))
+                    self.assertIn(f"above 1 ms (recorded {expected_gap} ns)", stale.stderr)
+                    self.assertFalse((root / "stale.json").exists())
+
+            after["observed_at"] = "2026-11-20T00:00:00.000000001Z"
+            ordinary = run()
+            exact = run(min_option, "1", max_option, "1", "--require-forward-time")
+            self.assertEqual(exact.returncode, 0, exact.stderr)
+            self.assertEqual((exact.stderr, exact.stdout), ("", ordinary.stdout))
+            after["http"]["concurrency_rejected_total"] = 1
+            growth = run(max_option, "1", "--require-unchanged", "--output", "valid.json")
+            self.assertEqual((growth.returncode, growth.stderr), (3, ""))
+            report = json.loads((root / "valid.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["http_delta"], {"concurrency_rejected_total": 1})
+
+            after["observed_at"] = before["observed_at"]
+            self.assertEqual(run(max_option, "1").returncode, 0)
+            after["observed_at"] = "2026-11-19T23:59:59.999000000Z"
+            self.assertEqual(run().returncode, 0)
+            backwards = run(max_option, "1")
+            self.assertEqual((backwards.returncode, backwards.stdout), (1, ""))
+            self.assertIn("observation gap is negative (recorded -1 ns)", backwards.stderr)
+            inverted = run(min_option, "2", max_option, "1", second="missing.json")
+            self.assertEqual((inverted.returncode, inverted.stdout), (2, ""))
+            self.assertIn("minimum observation gap cannot exceed maximum", inverted.stderr)
+            self.assertNotIn("snapshot:", inverted.stderr)
+            for bad in ("0", "-1", "+1", "1.5", "１", str(1 << 64), "9" * 5000):
+                with self.subTest(bad=bad[:20]):
+                    invalid = run(max_option, bad, second="missing.json")
+                    self.assertEqual((invalid.returncode, invalid.stdout), (2, ""))
+                    self.assertIn("maximum observation gap must be a positive ASCII decimal uint64", invalid.stderr)
+                    self.assertNotIn("snapshot:", invalid.stderr)
+
     def test_restart_metadata_change_and_every_counter_decrease_fail_closed(self):
         cases = []
         changed = sample()

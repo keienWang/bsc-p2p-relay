@@ -33,8 +33,8 @@ def parse_uint64(digits, message):
     return value
 
 
-def parse_min_gap_ms(digits):
-    message = "minimum observation gap must be a positive ASCII decimal uint64"
+def parse_gap_ms(digits, limit):
+    message = f"{limit} observation gap must be a positive ASCII decimal uint64"
     value = parse_uint64(digits, message)
     if not value:
         raise argparse.ArgumentTypeError(message)
@@ -56,15 +56,20 @@ def observed_gap_ns(before, after):
     return (gap.days * 86400 + gap.seconds) * 1_000_000_000 + int(after_fraction) - int(before_fraction)
 
 
-def compare_snapshots(before, after, *, require_forward_time=False, min_gap_ms=None):
+def compare_snapshots(before, after, *, require_forward_time=False, min_gap_ms=None, max_gap_ms=None):
     """Inputs must have passed decode_stats. Deltas are not rates or an identity."""
     require_same_instance(before, after)
     if require_forward_time and observed_time_key(after["observed_at"]) <= observed_time_key(before["observed_at"]):
         raise ValueError("after observed_at must be strictly later than before observed_at")
-    if min_gap_ms is not None:
+    if min_gap_ms is not None or max_gap_ms is not None:
         gap_ns = observed_gap_ns(before["observed_at"], after["observed_at"])
-        if gap_ns < min_gap_ms * 1_000_000:
+        if min_gap_ms is not None and gap_ns < min_gap_ms * 1_000_000:
             raise ValueError(f"observation gap is below {min_gap_ms} ms (recorded {gap_ns} ns)")
+        if max_gap_ms is not None:
+            if gap_ns < 0:
+                raise ValueError(f"observation gap is negative (recorded {gap_ns} ns)")
+            if gap_ns > max_gap_ms * 1_000_000:
+                raise ValueError(f"observation gap is above {max_gap_ms} ms (recorded {gap_ns} ns)")
     groups = {}
     for group in ("submit", "http"):
         delta = {}
@@ -92,8 +97,12 @@ def main(argv=None):
     parser.add_argument("--output", help="save a complete comparison to a new file; never overwrite")
     parser.add_argument("--require-forward-time", action="store_true",
                         help="reject equal or decreasing UTC observation timestamps")
-    parser.add_argument("--min-observation-gap-ms", type=parse_min_gap_ms, metavar="MILLISECONDS",
+    parser.add_argument("--min-observation-gap-ms", type=lambda value: parse_gap_ms(value, "minimum"),
+                        metavar="MILLISECONDS",
                         help="require the recorded UTC observation gap to be at least this many milliseconds")
+    parser.add_argument("--max-observation-gap-ms", type=lambda value: parse_gap_ms(value, "maximum"),
+                        metavar="MILLISECONDS",
+                        help="require a nonnegative recorded UTC observation gap at most this many milliseconds")
     guard = parser.add_mutually_exclusive_group()
     guard.add_argument("--require-unchanged", action="store_true",
                        help="exit 3 after reporting a valid comparison with any nonzero delta")
@@ -103,6 +112,9 @@ def main(argv=None):
                        metavar="GROUP.COUNTER=COUNT",
                        help="exit 3 if a selected counter delta exceeds its limit; repeatable")
     args = parser.parse_args(argv)
+    if (args.min_observation_gap_ms is not None and args.max_observation_gap_ms is not None
+            and args.min_observation_gap_ms > args.max_observation_gap_ms):
+        parser.error("minimum observation gap cannot exceed maximum")
     budgets = {}
     for group, field, limit in args.max_counter_increase or ():
         key = group, field
@@ -116,7 +128,7 @@ def main(argv=None):
         after = read_snapshot(args.after)
         stage = "snapshot comparison"
         result = compare_snapshots(before, after, require_forward_time=args.require_forward_time,
-                                   min_gap_ms=args.min_observation_gap_ms)
+                                   min_gap_ms=args.min_observation_gap_ms, max_gap_ms=args.max_observation_gap_ms)
         if args.output is not None:
             stage = "output report"
             save_new_snapshot(args.output, result)

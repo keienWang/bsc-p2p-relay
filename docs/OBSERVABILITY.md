@@ -275,6 +275,21 @@ enough gap can still yield exit `3` if a selected counter changed. This check
 uses UTC wall timestamps, not monotonic elapsed time. Clock jumps can
 invalidate or overstate the window; neither outcome proves no relay activity.
 
+To catch an old baseline accidentally reused for a short check, add an
+inclusive upper bound on the recorded window:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json \
+  --min-observation-gap-ms 5000 --max-observation-gap-ms 6000 --require-unchanged
+```
+
+The maximum is a positive ASCII decimal uint64 in milliseconds. A gap above
+it, or a negative gap, exits `1` without a report. Equal timestamps remain
+valid with just a maximum; add a minimum or `--require-forward-time` to reject
+them. A minimum above the maximum is a usage error (exit `2`). The maximum
+bounds only the difference between recorded UTC timestamps; it does not check
+when either snapshot was taken relative to the current time.
+
 ### Assert sampled counters did not change
 
 ```sh
