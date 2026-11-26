@@ -377,7 +377,7 @@ collector's; without it, the two-second socket idle timeout remains in effect.
 
 For a short local recovery window, use
 `--attempts 5 --fetch-deadline 2 --total-deadline 5`.
-The attempt count includes the first GET (1–20, default 1). Multiple attempts
+The attempt count includes the first attempt (1–20, default 1). Multiple attempts
 require at least one explicit POSIX deadline. The CLI waits up to 250 ms only
 after a valid observation below the configured minimum, including valid HTTP
 503 or HTTP 200 below that threshold. It stops immediately on a satisfactory
@@ -392,6 +392,13 @@ waits; each GET takes the smaller limit when both options are set. Exhausting
 the total budget exits `1` without stdout JSON or a new output file, not `3`
 based on a prior valid observation. Neither deadline covers local file
 operations, and this is not a continuous monitor.
+
+During a local restart, add `--retry-connection-refused` to allow the port to
+start listening within the same budget. This requires at least two attempts
+and a total deadline. A refused connection consumes an attempt just like a
+GET and uses the same delay. Exhausted refusals exit `1` without reporting an
+earlier sample. It does not retry transport timeouts, other transport
+failures, unexpected HTTP responses or invalid observations.
 
 To preserve a snapshot without truncating a prior file through shell
 redirection, use a new filename:

@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+import contextlib
+import io
 import json
 import pathlib
 import queue
@@ -9,9 +11,10 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from probe_readiness import decode_readiness
+from probe_readiness import decode_readiness, main
 from smoke import MAX_STATS_RESPONSE_BYTES
 
 
@@ -44,6 +47,76 @@ class ProbeReadinessTest(unittest.TestCase):
             with self.subTest(count=count, size=size):
                 sample = health(cached_transactions=count, cached_bytes=size)
                 self.assertEqual(decode_readiness(json.dumps(sample), 503), sample)
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "readiness deadlines require POSIX")
+    def test_opt_in_retries_only_refused_loopback_connections(self):
+        ready = health(ready_peers=1, connected_peers=1)
+        payload = json.dumps(ready).encode()
+        paths = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                paths.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        with server, tempfile.TemporaryDirectory() as directory:
+            server.server_bind()  # Keep the port reserved but do not listen yet.
+            api = f"127.0.0.1:{server.server_port}"
+            baseline = [api, "--attempts", "2", "--total-deadline", "2"]
+            script = pathlib.Path(__file__).resolve().with_name("probe_readiness.py")
+
+            def run(*args):
+                return subprocess.run([sys.executable, str(script), *args],
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            default = run(*baseline)
+            self.assertEqual((default.returncode, default.stdout), (1, ""))
+            self.assertIn("Connection refused", default.stderr)
+            for invalid in ((api,), (api, "--attempts", "2", "--fetch-deadline", "1")):
+                result = run(*invalid, "--retry-connection-refused")
+                self.assertEqual((result.returncode, result.stdout), (2, ""))
+                self.assertIn("--attempts", result.stderr)
+                self.assertIn("--total-deadline", result.stderr)
+
+            output = pathlib.Path(directory) / "observation.json"
+            exhausted = run(*baseline, "--retry-connection-refused", "--output", str(output))
+            self.assertEqual((exhausted.returncode, exhausted.stdout), (1, ""))
+            self.assertIn("Connection refused", exhausted.stderr)
+            self.assertFalse(output.exists())
+
+            budget = run(api, "--attempts", "3", "--total-deadline", "0.06", "--retry-connection-refused")
+            self.assertEqual((budget.returncode, budget.stdout), (1, ""))
+            self.assertIn("total deadline exceeded", budget.stderr)
+
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+            def start_listening(_seconds):
+                self.assertFalse(output.exists())
+                server.server_activate()
+                thread.start()
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            try:
+                with mock.patch("probe_readiness.time.sleep", side_effect=start_listening) as sleep:
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        code = main(baseline + ["--retry-connection-refused", "--output", str(output)])
+                sleep.assert_called_once()
+                self.assertEqual((code, stdout.getvalue(), stderr.getvalue(), paths), (0, "", "", ["/readyz"]))
+                self.assertEqual(json.loads(output.read_bytes()), ready)
+            finally:
+                if thread.is_alive():
+                    server.shutdown()
+                    thread.join(timeout=5)
 
     def test_loopback_cli_distinguishes_unready_from_unavailable(self):
         responses = queue.Queue()
@@ -262,7 +335,8 @@ class ProbeReadinessTest(unittest.TestCase):
                     add(*final, lambda: published_early.append(target.exists()))
                     network = () if name == "changed-network.json" else ("--expect-network", "mainnet")
                     result = run("--attempts", "2" if code != 1 else "3", "--fetch-deadline", "1",
-                                 "--min-ready-peers", "2", "--output", name, *network)
+                                 "--min-ready-peers", "2", "--output", name, *network,
+                                 "--total-deadline", "2", "--retry-connection-refused")
                     self.assertEqual((result.returncode, result.stdout), (code, ""), result.stderr)
                     self.assertEqual((paths, published_early), (["/readyz"] * 2, [False]))
                     if code == 1:

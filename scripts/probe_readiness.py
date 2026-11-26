@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Check one local Relay readiness response without submitting anything."""
 import argparse
+import errno
 import http.client
 import json
 import pathlib
@@ -103,19 +104,22 @@ def observe_readiness(args):
             fetch_deadline = remaining if fetch_deadline is None else min(fetch_deadline, remaining)
         try:
             result = probe(args.api, fetch_deadline)
-        except OBSERVATION_ERRORS:
+        except OBSERVATION_ERRORS as error:
             remaining_seconds(deadline)  # Report the total deadline if it has elapsed.
-            raise
-
-        # Never publish a sample delivered after the deadline, even if the
-        # inner fetch completed before its timer handler ran.
-        remaining_seconds(deadline)
-        if expected_network is None:
-            expected_network = result["network"]
-        elif result["network"] != expected_network:
-            raise ValueError(f"network mismatch: expected {expected_network}, reported {result['network']}")
-        if result["ready_peers"] >= args.min_ready_peers or attempt == args.attempts:
-            return result
+            if not (args.retry_connection_refused and attempt < args.attempts
+                    and type(error) is urllib.error.URLError
+                    and isinstance(error.reason, ConnectionRefusedError)
+                    and error.reason.errno == errno.ECONNREFUSED):
+                raise
+        else:
+            # Never publish a sample delivered after the deadline.
+            remaining_seconds(deadline)
+            if expected_network is None:
+                expected_network = result["network"]
+            elif result["network"] != expected_network:
+                raise ValueError(f"network mismatch: expected {expected_network}, reported {result['network']}")
+            if result["ready_peers"] >= args.min_ready_peers or attempt == args.attempts:
+                return result
         remaining = remaining_seconds(deadline)
         time.sleep(RETRY_DELAY_SECONDS if remaining is None else min(RETRY_DELAY_SECONDS, remaining))
 
@@ -133,9 +137,13 @@ def main(argv=None):
                         help="optional POSIX elapsed limit for all waits and fetches, 0.001 to 60 seconds")
     parser.add_argument("--attempts", type=parse_attempts, default=1, metavar="COUNT",
                         help=f"at most {MAX_ATTEMPTS} GETs; more than one requires an explicit deadline")
+    parser.add_argument("--retry-connection-refused", action="store_true",
+                        help="retry loopback connection refusal; requires multiple attempts and a total deadline")
     parser.add_argument("--output", type=pathlib.Path, metavar="FILE",
                         help="save the validated observation to a new file instead of stdout")
     args = parser.parse_args(argv)
+    if args.retry_connection_refused and (args.attempts < 2 or args.total_deadline is None):
+        parser.error("--retry-connection-refused requires --attempts above 1 and --total-deadline")
     if args.attempts > 1 and args.fetch_deadline is None and args.total_deadline is None:
         parser.error("--attempts above 1 requires --fetch-deadline or --total-deadline")
     try:
