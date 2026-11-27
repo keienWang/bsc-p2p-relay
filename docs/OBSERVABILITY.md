@@ -348,6 +348,12 @@ modes. Without an assertion mode, valid comparisons exit `0` regardless of
 counter growth. These limits apply to sampled counts, not rates; a quiet sample
 does not prove that the relay, peers, or chain were idle.
 
+Add `--explain-guard` with any of the three counter guards to log each exceeded
+limit to stderr. For example, a delta of 3 against a limit of 2 produces
+`counter guard exceeded: http.concurrency_rejected_total delta=3, limit=2`.
+Exit codes, stdout, and saved reports do not change. Passing guards stay quiet;
+without a counter guard, `--explain-guard` is a usage error.
+
 ### Readiness scope and polling cost
 
 `/readyz` reports whether any registered session negotiated transaction receive

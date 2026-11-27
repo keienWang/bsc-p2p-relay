@@ -85,6 +85,20 @@ def compare_snapshots(before, after, *, require_forward_time=False, min_gap_ms=N
     }
 
 
+def exceeded_limits(result, *, unchanged=False, selected=(), budgets=None):
+    if unchanged:
+        limits = dict.fromkeys(SELECTABLE_COUNTERS, 0)
+    elif selected:
+        limits = dict.fromkeys(selected, 0)
+    else:
+        limits = {f"{group}.{field}": limit for (group, field), limit in (budgets or {}).items()}
+    for selector, limit in sorted(limits.items()):
+        group, field = selector.split(".")
+        delta = result[group + "_delta"][field]
+        if delta > limit:
+            yield selector, delta, limit
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", help="earlier saved JSON response body")
@@ -106,7 +120,12 @@ def main(argv=None):
     guard.add_argument("--max-counter-increase", action="append", type=parse_counter_budget,
                        metavar="GROUP.COUNTER=COUNT",
                        help="exit 3 if a selected counter delta exceeds its limit; repeatable")
+    parser.add_argument("--explain-guard", action="store_true",
+                        help="on exit 3, log each exceeded counter limit to stderr without changing the report")
     args = parser.parse_args(argv)
+    if (args.explain_guard and not (args.require_unchanged or args.require_unchanged_counter
+                                    or args.max_counter_increase)):
+        parser.error("--explain-guard requires a counter guard")
     if (args.min_observation_gap_ms is not None and args.max_observation_gap_ms is not None
             and args.min_observation_gap_ms > args.max_observation_gap_ms):
         parser.error("minimum observation gap cannot exceed maximum")
@@ -134,17 +153,12 @@ def main(argv=None):
         print(json.dumps(result, sort_keys=True, indent=2))
     else:
         print("Saved validated statistics comparison.")
-    if args.require_unchanged and any(
-        count for group in ("submit_delta", "http_delta") for count in result[group].values()
-    ):
-        return 3
-    for selector in args.require_unchanged_counter or ():
-        group, field = selector.split(".")
-        if result[group + "_delta"][field]:
-            return 3
-    if any(result[group + "_delta"][field] > limit for (group, field), limit in budgets.items()):
-        return 3
-    return 0
+    exceeded = list(exceeded_limits(result, unchanged=args.require_unchanged,
+                                    selected=args.require_unchanged_counter, budgets=budgets))
+    if args.explain_guard:
+        for selector, delta, limit in exceeded:
+            print(f"counter guard exceeded: {selector} delta={delta}, limit={limit}", file=sys.stderr)
+    return 3 if exceeded else 0
 
 
 if __name__ == "__main__":

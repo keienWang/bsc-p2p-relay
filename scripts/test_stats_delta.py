@@ -306,6 +306,47 @@ class StatsDeltaTests(unittest.TestCase):
             self.assertEqual((code, out.getvalue()), (1, ""))
             self.assertIn("statistics unavailable:", err.getvalue())
 
+    def test_cli_explains_only_exceeded_counter_limits_without_changing_the_report(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            http = "http.concurrency_rejected_total"
+            accepted = "submit.accepted_new_cache_lifetime_total"
+            other = "submit.other_total"
+            big = (1 << 64) - 1
+            after["http"]["concurrency_rejected_total"] = 3
+            after["submit"]["accepted_new_cache_lifetime_total"] = big
+            after["submit"]["other_total"] = 1
+            for name, value in (("before.json", before), ("after.json", after)):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+
+            def run(*args):
+                return subprocess.run(command + ["before.json", "after.json", *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            def message(selector, delta, limit):
+                return f"counter guard exceeded: {selector} delta={delta}, limit={limit}\n"
+
+            baseline = run("--require-unchanged")
+            self.assertEqual((baseline.returncode, baseline.stderr), (3, ""))
+            explained = run("--explain-guard", "--require-unchanged")
+            self.assertEqual((explained.returncode, explained.stdout), (3, baseline.stdout))
+            self.assertEqual(explained.stderr,
+                             message(http, 3, 0) + message(accepted, big, 0) + message(other, 1, 0))
+            selected = run("--explain-guard", "--require-unchanged-counter", accepted,
+                           "--require-unchanged-counter", accepted, "--output", "comparison.json")
+            self.assertEqual((selected.returncode, selected.stderr), (3, message(accepted, big, 0)))
+            self.assertEqual((root / "comparison.json").read_text(), baseline.stdout)
+            budgets = run("--explain-guard", "--max-counter-increase", accepted + f"={big}",
+                          "--max-counter-increase", http + "=2")
+            self.assertEqual((budgets.returncode, budgets.stderr), (3, message(http, 3, 2)))
+            allowed = run("--explain-guard", "--max-counter-increase", http + "=3")
+            self.assertEqual((allowed.returncode, allowed.stderr), (0, ""))
+            usage = run("--explain-guard")
+            self.assertEqual((usage.returncode, usage.stdout), (2, ""))
+            self.assertIn("--explain-guard requires a counter guard", usage.stderr)
+
     def test_cli_can_require_only_selected_counters_to_stay_unchanged(self):
         command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
         with tempfile.TemporaryDirectory() as directory:
