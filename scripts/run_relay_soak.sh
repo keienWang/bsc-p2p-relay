@@ -12,6 +12,7 @@ if (( $# != 0 )); then
     exit 2
 fi
 cd "$(dirname "$0")/.."
+command -v python3 >/dev/null || { echo 'python3 is required to validate report.json' >&2; exit 2; }
 command -v flock >/dev/null || { echo 'flock is required to prevent concurrent soak processes' >&2; exit 2; }
 exec 9>"${TMPDIR:-/tmp}/bsc-relay-soak.lock"
 flock -n 9 || { echo 'Another relay soak is running; not starting competing load' >&2; exit 2; }
@@ -26,7 +27,7 @@ export RELAY_SOAK=1 RELAY_SOAK_DURATION="${RELAY_SOAK_DURATION:-5s}" RELAY_SOAK_
  printf 'GOMAXPROCS=%s duration_per_scenario=%s seed=%s\n' "$GOMAXPROCS" "$RELAY_SOAK_DURATION" "$RELAY_SOAK_SEED"
  git rev-parse HEAD
  git status --short
- sha256sum internal/relay/soak*_test.go scripts/run_relay_soak.sh
+ sha256sum internal/relay/soak*_test.go scripts/run_relay_soak.sh scripts/check_load_report.py
  test ! -r /proc/loadavg || cat /proc/loadavg
 } > "$output/environment.txt"
 args=(-count=1 -timeout="${RELAY_SOAK_TIMEOUT:-3m}" -run='^TestSoak(MsgPipe|Quantiles)$' -v)
@@ -45,10 +46,9 @@ if (( log_status != 0 )); then
     printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
         "$log_status" "$test_status" >&2
     summary_fd=2
-elif (( status == 0 )) && [[ ! -f "$output/report.json" || -L "$output/report.json" || ! -s "$output/report.json" ]]; then
-    # go test can return zero after running no report-producing test.
+elif (( status == 0 )) && ! python3 scripts/check_load_report.py soak "$output/report.json"; then
+    # A zero Go status and a captured log do not establish usable evidence.
     status=1
-    printf 'ERROR: required report.json is missing, empty, or not a regular non-symlink file\n' >&2
     summary_fd=2
 fi
 printf '%s\n' "$status" > "$output/exit-code.txt"

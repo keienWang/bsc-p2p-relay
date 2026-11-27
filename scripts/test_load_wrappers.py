@@ -58,13 +58,30 @@ class LoadWrapperLogTests(unittest.TestCase):
                 with self.subTest(wrapper=wrapper, report_kind=report_kind):
                     self.check_result(wrapper, 0, 0, report_kind=report_kind)
 
+    def test_nonempty_evidence_must_decode_and_match_the_harness(self):
+        invalid = {
+            "truncated": "invalid load report",
+            "wrong_revision": "expected synthetic harness",
+            "duplicate": "duplicate JSON field",
+            "invalid_utf8": "invalid load report",
+            "oversize": "exceeds the 4 MiB limit",
+            "partial": None,
+        }
+        for wrapper in ("run_relay_soak.sh", "run_unique_capacity.sh"):
+            for kind, diagnostic in invalid.items():
+                with self.subTest(wrapper=wrapper, kind=kind):
+                    expected = diagnostic or ("lacks a soak occupancy result"
+                                              if wrapper == "run_relay_soak.sh"
+                                              else "does not record a successful unique-capacity result")
+                    self.check_result(wrapper, 0, 0, report_kind=kind, diagnostic=expected)
+
     def test_original_failure_takes_precedence_when_report_missing(self):
         for wrapper in ("run_relay_soak.sh", "run_unique_capacity.sh"):
             for test_status, tee_status in ((17, 0), (0, 23), (17, 23)):
                 with self.subTest(wrapper=wrapper, test=test_status, tee=tee_status):
                     self.check_result(wrapper, test_status, tee_status, report_kind="missing")
 
-    def check_result(self, wrapper, test_status, tee_status, *, report_kind="valid"):
+    def check_result(self, wrapper, test_status, tee_status, *, report_kind="valid", diagnostic=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stubs = root / "bin"
@@ -76,8 +93,23 @@ case "$1" in
     test)
         report=${RELAY_UNIQUE_REPORT:-${RELAY_SOAK_REPORT:-}}
         test -n "$report" || exit 98
+        if [[ -n "${RELAY_UNIQUE_REPORT:-}" ]]; then
+            revision=unique-capacity-v1
+            metrics='"passed":true'
+            partial='"passed":false'
+        else
+            revision=http-fail-closed-v2
+            metrics='"occupancy_900":{"requests":1},"occupancy_1024":{"requests":2}'
+            partial='"occupancy_900":{"requests":1}'
+        fi
         case "$TEST_REPORT_KIND" in
-            valid) printf '{"passed":true}\n' > "$report";;
+            valid) printf '{"harness_revision":"%s","synthetic_only":true,%s}\n' "$revision" "$metrics" > "$report";;
+            truncated) printf '{"harness_revision":' > "$report";;
+            duplicate) printf '{"synthetic_only":true,"synthetic_only":false}\n' > "$report";;
+            wrong_revision) printf '{"harness_revision":"wrong","synthetic_only":true,%s}\n' "$metrics" > "$report";;
+            partial) printf '{"harness_revision":"%s","synthetic_only":true,%s}\n' "$revision" "$partial" > "$report";;
+            invalid_utf8) printf '{"foo":"\\377"}\n' > "$report";;
+            oversize) python3 -c 'import sys; open(sys.argv[1], "wb").truncate(4194305)' "$report";;
             missing) :;;
             empty) touch "$report";;
             directory) mkdir "$report";;
@@ -118,7 +150,8 @@ exec "$TEST_REAL_TEE" "$@"
             self.assertEqual(result.returncode, expected, (result.stdout, result.stderr))
             self.assertEqual((report / "exit-code.txt").read_text(), f"{expected}\n")
             if invalid_report:
-                self.assertIn("required report.json is missing, empty, or not a regular non-symlink file", result.stderr)
+                self.assertIn(diagnostic or "required report.json is missing, empty, or not a regular non-symlink file",
+                              result.stderr)
                 self.assertIn("Exit=1;", result.stderr)
                 self.assertNotIn("Exit=0;", result.stdout)
             else:

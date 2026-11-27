@@ -274,8 +274,10 @@ statuses on stderr. A nonzero Go process status takes precedence (it may reflect
 a broken pipe, not a test assertion failure); otherwise the log status is used.
 Do not count a partial log as a clean run.
 Reports use exclusive creation. After a successful Go run and log capture, the
-wrapper requires a nonempty regular `report.json` (not a symlink); it does not
-parse the JSON. Early failures still finalize scenario evidence when possible.
+wrapper uses Python 3 to require a regular, non-symlink `report.json` of at
+most 4 MiB, with valid UTF-8 JSON, the expected synthetic harness revision,
+and `passed: true`. It does not recheck every metric. Early failures still
+finalize scenario evidence when possible.
 A process kill/global Go timeout can prevent report cleanup output. Keep the
 full log and the original nonzero status when available. The only finite-stream
 rate denominator is its actual measured interval, excluding fixture setup and

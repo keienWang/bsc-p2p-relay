@@ -22,8 +22,10 @@ pipeline statuses, and the wrapper uses the nonzero log status if Go returned
 zero. Otherwise Go's process status takes precedence; with a broken pipeline
 that status is not necessarily a test assertion failure. Do not treat a
 partial log as complete evidence. If Go and log capture both succeed, the
-wrapper still requires a nonempty regular `report.json` (not a symlink).
-This checks the artifact's presence and type, not its JSON contents. A process
+wrapper uses Python 3 to require a regular, non-symlink `report.json` of at
+most 4 MiB, with valid UTF-8 JSON, the expected synthetic harness revision,
+and both occupancy results. This is a basic evidence check, not a recheck
+of every metric. A process
 kill or Go timeout may prevent report cleanup output; keep any partial evidence
 and the original nonzero status when available.
 

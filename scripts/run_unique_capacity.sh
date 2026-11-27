@@ -16,6 +16,7 @@ case "$mode" in
   *) printf '%s\n' "$usage" >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")/.."
+command -v python3 >/dev/null || { echo 'python3 is required to validate report.json' >&2; exit 2; }
 command -v flock >/dev/null || { echo 'flock is required' >&2; exit 2; }
 # Share the existing soak lock: do not compete with the old occupancy workload.
 exec 9>"${TMPDIR:-/tmp}/bsc-relay-soak.lock"
@@ -30,7 +31,7 @@ export RELAY_UNIQUE_REPORT="$output/report.json"
   printf 'harness_revision=unique-capacity-v1\nmode=%s\nGOMAXPROCS=2\n' "$mode"
   git rev-parse HEAD
   git status --short
-  sha256sum internal/relay/unique_capacity*_test.go internal/relay/soak*_test.go scripts/run_unique_capacity.sh
+  sha256sum internal/relay/unique_capacity*_test.go internal/relay/soak*_test.go scripts/run_unique_capacity.sh scripts/check_load_report.py
   test ! -r /proc/loadavg || cat /proc/loadavg
 } > "$output/environment.txt"
 printf 'Report and log directory: %s\n' "$output"
@@ -49,10 +50,9 @@ if (( log_status != 0 )); then
     printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
         "$log_status" "$test_status" >&2
     summary_fd=2
-elif (( status == 0 )) && [[ ! -f "$output/report.json" || -L "$output/report.json" || ! -s "$output/report.json" ]]; then
-    # go test can return zero after running no report-producing test.
+elif (( status == 0 )) && ! python3 scripts/check_load_report.py unique "$output/report.json"; then
+    # A zero Go status and a captured log do not establish usable evidence.
     status=1
-    printf 'ERROR: required report.json is missing, empty, or not a regular non-symlink file\n' >&2
     summary_fd=2
 fi
 printf '%s\n' "$status" > "$output/exit-code.txt"
