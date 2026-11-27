@@ -2,7 +2,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -12,17 +15,16 @@ import (
 	"github.com/keienWang/bsc-p2p-relay/internal/relay"
 )
 
-// Exercise the live CLI lifecycle, rather than a synthetic context branch or
-// Node.Close in isolation. All listeners and client calls stay on loopback.
+// Exercise the live CLI lifecycle with an actual keep-alive client. Hand
+// Serve an owned loopback socket so no other test can take a released port
+// between address selection and startup.
 func TestRunRelayCancellationReleasesObservationListener(t *testing.T) {
-	probe, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatal(err)
-	}
+	defer listener.Close()
+	api := listener.Addr().String()
 
 	cfg := relay.DefaultConfig()
 	cfg.ListenAddr = "127.0.0.1:0"
@@ -33,7 +35,13 @@ func TestRunRelayCancellationReleasesObservationListener(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runErr = runRelay(ctx, func() { restores.Add(1) }, cfg, api, true, defaultHTTPDrainTimeout)
+		runErr = runRelayWithHTTPListener(ctx, func() { restores.Add(1) }, cfg, api, true, defaultHTTPDrainTimeout,
+			func(network, address string) (net.Listener, error) {
+				if network != "tcp" || address != api {
+					return nil, fmt.Errorf("unexpected observation bind %s %s", network, address)
+				}
+				return listener, nil
+			})
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -44,30 +52,30 @@ func TestRunRelayCancellationReleasesObservationListener(t *testing.T) {
 		}
 	})
 
-	client := &http.Client{
-		Transport:     &http.Transport{DisableKeepAlives: true},
-		Timeout:       250 * time.Millisecond,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	conn, err := net.DialTimeout("tcp4", api, time.Second)
+	if err != nil {
+		t.Fatal(err)
 	}
-	startup := time.NewTimer(5 * time.Second)
-	defer startup.Stop()
-	poll := time.NewTicker(10 * time.Millisecond)
-	defer poll.Stop()
-	for {
-		response, err := client.Get("http://" + api + "/healthz")
-		if err == nil {
-			_ = response.Body.Close()
-			if response.StatusCode != http.StatusOK {
-				t.Fatalf("observation health returned HTTP %d", response.StatusCode)
-			}
-			break
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	for range 2 {
+		// A second response on the same socket proves it is a live
+		// persistent connection, not just an accepted TCP handshake.
+		if _, err := fmt.Fprintf(conn, "GET /healthz HTTP/1.1\r\nHost: %s\r\n\r\n", api); err != nil {
+			t.Fatal(err)
 		}
-		select {
-		case <-done:
-			t.Fatalf("relay returned before observation startup: %v", runErr)
-		case <-startup.C:
-			t.Fatalf("observation listener did not start: %v", err)
-		case <-poll.C:
+		response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, copyErr := io.Copy(io.Discard, response.Body)
+		closeErr := response.Body.Close()
+		if copyErr != nil || closeErr != nil || response.StatusCode != http.StatusOK || response.Close {
+			t.Fatalf("health response was not reusable: status=%d close=%t copy=%v closeBody=%v",
+				response.StatusCode, response.Close, copyErr, closeErr)
 		}
 	}
 	if restores.Load() != 0 {
@@ -85,6 +93,12 @@ func TestRunRelayCancellationReleasesObservationListener(t *testing.T) {
 	}
 	if got := restores.Load(); got != 1 {
 		t.Fatalf("signal restoration called %d times; want 1", got)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.ReadByte(); err != io.EOF {
+		t.Fatalf("idle observation connection not closed cleanly after cancellation: %v", err)
 	}
 	reopened, err := net.Listen("tcp4", api)
 	if err != nil {
