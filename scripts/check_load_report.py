@@ -49,9 +49,12 @@ def validate_report(report, harness):
             or report.get("synthetic_only") is not True):
         raise ValueError("required report.json does not identify the expected synthetic harness")
     if harness == "soak":
-        if any(not isinstance(report.get(key), dict) or not report[key]
-               for key in ("occupancy_900", "occupancy_1024")):
-            raise ValueError("required report.json lacks a soak occupancy result")
+        for key in ("occupancy_900", "occupancy_1024"):
+            result = report.get(key)
+            if type(result) is not dict or not result:
+                raise ValueError(f"required report.json lacks a soak occupancy result: {key}")
+            if result.get("passed") is not True or result.get("partial_due_to_early_failure", False) is not False:
+                raise ValueError(f"required report.json does not record a successful soak occupancy result: {key}")
     elif report.get("passed") is not True:
         raise ValueError("required report.json does not record a successful unique-capacity result")
 

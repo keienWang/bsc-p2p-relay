@@ -75,6 +75,12 @@ class LoadWrapperLogTests(unittest.TestCase):
                                               else "does not record a successful unique-capacity result")
                     self.check_result(wrapper, 0, 0, report_kind=kind, diagnostic=expected)
 
+    def test_soak_requires_successful_nonpartial_occupancy_results(self):
+        for kind in ("failed_occupancy", "partial_occupancy", "numeric_occupancy_pass"):
+            with self.subTest(kind=kind):
+                self.check_result("run_relay_soak.sh", 0, 0, report_kind=kind,
+                                  diagnostic="does not record a successful soak occupancy result")
+
     def test_original_failure_takes_precedence_when_report_missing(self):
         for wrapper in ("run_relay_soak.sh", "run_unique_capacity.sh"):
             for test_status, tee_status in ((17, 0), (0, 23), (17, 23)):
@@ -99,8 +105,8 @@ case "$1" in
             partial='"passed":false'
         else
             revision=http-fail-closed-v2
-            metrics='"occupancy_900":{"requests":1},"occupancy_1024":{"requests":2}'
-            partial='"occupancy_900":{"requests":1}'
+            metrics='"occupancy_900":{"requests":1,"passed":true},"occupancy_1024":{"requests":2,"passed":true}'
+            partial='"occupancy_900":{"requests":1,"passed":true}'
         fi
         case "$TEST_REPORT_KIND" in
             valid) printf '{"harness_revision":"%s","synthetic_only":true,%s}\n' "$revision" "$metrics" > "$report";;
@@ -108,6 +114,13 @@ case "$1" in
             duplicate) printf '{"synthetic_only":true,"synthetic_only":false}\n' > "$report";;
             wrong_revision) printf '{"harness_revision":"wrong","synthetic_only":true,%s}\n' "$metrics" > "$report";;
             partial) printf '{"harness_revision":"%s","synthetic_only":true,%s}\n' "$revision" "$partial" > "$report";;
+            failed_occupancy|partial_occupancy|numeric_occupancy_pass)
+                case "$TEST_REPORT_KIND" in
+                    failed_occupancy) result='"passed":false';;
+                    partial_occupancy) result='"passed":true,"partial_due_to_early_failure":true';;
+                    numeric_occupancy_pass) result='"passed":1';;
+                esac
+                printf '{"harness_revision":"%s","synthetic_only":true,"occupancy_900":{"passed":true},"occupancy_1024":{%s}}\\n' "$revision" "$result" > "$report";;
             invalid_utf8) printf '{"foo":"\\377"}\n' > "$report";;
             oversize) python3 -c 'import sys; open(sys.argv[1], "wb").truncate(4194305)' "$report";;
             missing) :;;
