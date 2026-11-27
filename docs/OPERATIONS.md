@@ -157,6 +157,10 @@ data files:
 python3 scripts/smoke.py ./bin/bsc-relay
 ```
 
+The script accepts exactly one executable path. Use `--help` to see its usage.
+An invalid invocation reports a usage error; a failed check reports the reason
+on standard error and exits nonzero.
+
 Before that local startup, the smoke checks six positional-argument rejection
 cases against the same binary. These cases put an invalid API address before
 any leftover argument, so even the older CLI without this check exits before

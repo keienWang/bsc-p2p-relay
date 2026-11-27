@@ -3,6 +3,8 @@ import contextlib
 import errno
 import io
 import os
+import pathlib
+import shlex
 import signal
 import socket
 import subprocess
@@ -49,6 +51,51 @@ class OptimizedSmokeTest(unittest.TestCase):
                                         text=True, timeout=5, check=False)
                 self.assertEqual((result.returncode, result.stdout), (1, ""))
                 self.assertIn(message, result.stderr)
+
+
+class SmokeEntrypointTest(unittest.TestCase):
+    def invoke(self, work, *args):
+        script = pathlib.Path(__file__).resolve().with_name("smoke.py")
+        return subprocess.run([sys.executable, "-O", str(script), *args], cwd=work,
+                              capture_output=True, text=True, check=False, timeout=5)
+
+    def test_help_and_invalid_arguments_do_not_launch(self):
+        with tempfile.TemporaryDirectory() as work:
+            marker = pathlib.Path(work) / "called"
+            binary = pathlib.Path(work) / "canary"
+            binary.write_text("#!/bin/sh\nprintf called > " + shlex.quote(str(marker)) + "\n")
+            binary.chmod(0o700)
+            result = self.invoke(work, "--help")
+            self.assertEqual((result.returncode, result.stderr), (0, ""))
+            self.assertIn("locally built Relay executable", result.stdout)
+            for args in ((), ("canary", "extra")):
+                with self.subTest(args=args):
+                    result = self.invoke(work, *args)
+                    self.assertEqual((result.returncode, result.stdout), (2, ""))
+                    self.assertIn("usage:", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertFalse(marker.exists())
+
+    def test_bad_binary_and_stage_failure_have_actionable_diagnostics(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = pathlib.Path(work)
+            (root / "not-executable").write_text("fixture")
+            for path, expected in (("missing", "missing"), (".", "executable regular file"),
+                                   ("not-executable", "executable regular file")):
+                with self.subTest(path=path):
+                    self.assert_smoke_failure(self.invoke(work, path), expected)
+            fake = root / "guarded"
+            # A harmless executable that does not honor the Relay CLI contract.
+            fake.write_text("#!/bin/sh\nexit 0\n")
+            fake.chmod(0o700)
+            self.assert_smoke_failure(self.invoke(work, "./guarded"),
+                                      "CLI positional arguments did not fail before startup")
+
+    def assert_smoke_failure(self, result, detail):
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("relay smoke failed:", result.stderr)
+        self.assertIn(detail, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 class CLISmokeTest(unittest.TestCase):

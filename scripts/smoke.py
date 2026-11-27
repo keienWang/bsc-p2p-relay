@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Loopback-only process smoke test. Never submits a signed transaction."""
+import argparse
 import contextlib
+import http.client
 import datetime
 import errno
 import json
@@ -510,5 +512,21 @@ def check_statistics_restart(binary):
     print("PASS: same-address relay restart rejects prior statistics identity")
 
 
+def cli(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("binary", type=pathlib.Path, help="path to the locally built Relay executable")
+    args = parser.parse_args(argv)
+    try:
+        binary = args.binary.resolve(strict=True)
+        if not binary.is_file() or not os.access(binary, os.X_OK):
+            raise ValueError("binary must be an executable regular file")
+        main(binary)
+    except (OSError, ValueError, AssertionError, RuntimeError,
+            subprocess.SubprocessError, http.client.HTTPException) as error:
+        print(f"relay smoke failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    sys.exit(cli())
