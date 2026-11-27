@@ -57,3 +57,38 @@ The [v2 HTTP gate correction](SOAK_HTTP_VALIDATION.md) supersedes the original
 soak acceptance result: unexpected statuses, malformed responses and missing
 error denominators now fail both occupancy and expiry scenarios. Fault injections
 are isolated from performance samples.
+
+## Statistics observation cost
+
+`BenchmarkStatsObservation` separates direct `Stats()` snapshots from the
+in-process observation handler's JSON encoding plus `httptest.ResponseRecorder`
+cost. Each has serial and parallel variants, on empty and 1,024-entry cache
+fixtures with 20 synthetic session records. Fixture construction and signing are
+outside timing. Counters stay fixed during timing; this does not measure atomic
+write contention. No session connects, no transaction is submitted, and there
+are no network requests. The handler benchmark deliberately includes each new
+recorder's allocations but excludes request construction and real HTTP transport.
+
+On a qualified Linux/amd64 development host with the reviewed toolchain and
+native archive, use the repository's noexecstack linker policy explicitly:
+
+```sh
+go test -ldflags=-extldflags=-Wl,-z,noexecstack ./internal/relay \
+  -run='^TestStatsSnapshotAllocations$' \
+  -bench='^BenchmarkStatsObservation$' -benchmem -benchtime=1s -count=3
+```
+
+See [the Linux build policy](LINUX_BUILD.md) before using that platform-specific
+flag; it is not a portable command for other linkers. Record Go version, CPU,
+GOMAXPROCS and repeated measurements when comparing revisions. Do not use race
+instrumentation for performance numbers; run race separately for correctness.
+Parallel `ns/op` is aggregate work per operation, not per-request latency or a
+p95/p99. These measurements are not HTTP capacity, transaction TPS, remote
+acceptance, an SLO, or production readiness. CPU timing is informational: there
+is no hardware-dependent CI timing threshold.
+
+`TestStatsSnapshotAllocations` runs in the ordinary test suite and guards the
+snapshot core's zero heap-allocation property. That narrow regression does not
+claim zero allocations for JSON encoding, HTTP, metadata initialization or the
+relay process. The existing lock-independence and concurrency tests remain the
+correctness checks; benchmarks do not replace them.

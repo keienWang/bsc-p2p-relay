@@ -78,16 +78,23 @@ commit/tree/status, SHA-256, byte count, build ID and ELF metadata provide the
 recorded evidence, not an embedded linker-flag claim or reproducibility proof.
 Source commit/tree/status identifies the checkout context, not an attestation
 that the commit exactly represents every byte compiled. Dirty source status is
-disclosed and is not clean release-source evidence.
+disclosed and is not clean release-source evidence. The tree is looked up from
+the recorded commit, not from a second lookup of the moving HEAD.
 
 Build and checks occur in a private temporary directory on the destination
 filesystem. Only after every check passes and the old destination is confirmed
 unchanged is the new artifact atomically renamed into place. Build, metadata,
 ELF-check or rename failure leaves the old binary available and reports failure;
 it does not call that old binary a successful new build. Symlink destinations or
-output-parent symlinks are rejected. These are controlled-checkout safeguards,
-not protection against hostile concurrent mutation or crash-durable packaging.
-The build entry never executes the newly installed relay.
+output-parent symlinks are rejected. An observed replacement of the output
+directory during the build also cancels installation, even if that destination
+had no prior artifact. The qualified build also compares HEAD
+with the initial commit immediately before installation and rejects a changed
+checkout. This does not detect edits that leave HEAD unchanged, or a switch
+away from the commit and back between the two checks. These are
+controlled-checkout safeguards, not protection against hostile concurrent
+mutation or crash-durable packaging. The build entry never executes the newly
+installed relay.
 
 Linux operations reuse bounded process-group capture: 4 MiB per command,
 16 MiB cumulative output and bounded TERM/KILL cleanup. Shared operation

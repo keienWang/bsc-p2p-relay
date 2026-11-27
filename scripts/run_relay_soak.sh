@@ -2,7 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Opt-in only. All relay traffic stays inside one process or on 127.0.0.1.
 set -euo pipefail
+usage='Usage: run_relay_soak.sh [--help|-h]'
+if (( $# != 0 )); then
+    if (( $# == 1 )) && [[ "$1" == --help || "$1" == -h ]]; then
+        printf '%s\n' "$usage"
+        exit 0
+    fi
+    printf '%s\n' "$usage" >&2
+    exit 2
+fi
 cd "$(dirname "$0")/.."
+command -v python3 >/dev/null || { echo 'python3 is required to validate report.json' >&2; exit 2; }
 command -v flock >/dev/null || { echo 'flock is required to prevent concurrent soak processes' >&2; exit 2; }
 exec 9>"${TMPDIR:-/tmp}/bsc-relay-soak.lock"
 flock -n 9 || { echo 'Another relay soak is running; not starting competing load' >&2; exit 2; }
@@ -17,16 +27,30 @@ export RELAY_SOAK=1 RELAY_SOAK_DURATION="${RELAY_SOAK_DURATION:-5s}" RELAY_SOAK_
  printf 'GOMAXPROCS=%s duration_per_scenario=%s seed=%s\n' "$GOMAXPROCS" "$RELAY_SOAK_DURATION" "$RELAY_SOAK_SEED"
  git rev-parse HEAD
  git status --short
- sha256sum internal/relay/soak*_test.go scripts/run_relay_soak.sh
+ sha256sum internal/relay/soak*_test.go scripts/run_relay_soak.sh scripts/check_load_report.py
  test ! -r /proc/loadavg || cat /proc/loadavg
 } > "$output/environment.txt"
 args=(-count=1 -timeout="${RELAY_SOAK_TIMEOUT:-3m}" -run='^TestSoak(MsgPipe|Quantiles)$' -v)
 if [[ "${RELAY_SOAK_RACE:-0}" == 1 ]]; then args+=(-race); fi
-printf 'Report and complete log: %s\n' "$output"
+printf 'Report and log directory: %s\n' "$output"
 set +e
 go test "${args[@]}" ./internal/relay 2>&1 | tee "$output/test.log"
-status=${PIPESTATUS[0]}
+statuses=("${PIPESTATUS[@]}")
 set -e
+test_status=${statuses[0]}
+log_status=${statuses[1]}
+status=$test_status
+summary_fd=1
+if (( log_status != 0 )); then
+    if (( status == 0 )); then status=$log_status; fi
+    printf 'ERROR: log capture failed (tee exit %s); test exit=%s; log may be incomplete\n' \
+        "$log_status" "$test_status" >&2
+    summary_fd=2
+elif (( status == 0 )) && ! python3 scripts/check_load_report.py soak "$output/report.json"; then
+    # A zero Go status and a captured log do not establish usable evidence.
+    status=1
+    summary_fd=2
+fi
 printf '%s\n' "$status" > "$output/exit-code.txt"
-printf 'Exit=%s; artifacts: %s\n' "$status" "$output"
+printf 'Exit=%s; artifacts: %s\n' "$status" "$output" >&"$summary_fd"
 exit "$status"

@@ -34,6 +34,16 @@ func apiError(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{"error": message})
 }
 func (n *Node) Handler() http.Handler {
+	return n.httpHandler(false)
+}
+
+// ObservationHandler exposes health, readiness, and stats without accepting
+// transaction submissions. It does not change the P2P protocol.
+func (n *Node) ObservationHandler() http.Handler {
+	return n.httpHandler(true)
+}
+
+func (n *Node) httpHandler(observeOnly bool) http.Handler {
 	slots := make(chan struct{}, 8)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -53,6 +63,7 @@ func (n *Node) Handler() http.Handler {
 		switch r.URL.Path {
 		case "/healthz", "/readyz":
 			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
 				apiError(w, 405, "GET required")
 				return
 			}
@@ -64,12 +75,18 @@ func (n *Node) Handler() http.Handler {
 			jsonResponse(w, status, health)
 		case "/v1/stats":
 			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", http.MethodGet)
 				apiError(w, 405, "GET required")
 				return
 			}
 			jsonResponse(w, 200, n.Stats())
 		case "/v1/transactions":
+			if observeOnly {
+				apiError(w, http.StatusForbidden, "transaction submission is disabled in observation mode")
+				return
+			}
 			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
 				apiError(w, 405, "POST required")
 				return
 			}
@@ -113,7 +130,7 @@ func (n *Node) Handler() http.Handler {
 			result, err := n.Submit(raw)
 			if err != nil {
 				status := 400
-				if errors.Is(err, ErrNoPeers) {
+				if errors.Is(err, ErrNoPeers) || errors.Is(err, ErrNodeClosed) {
 					status = 503
 				}
 				if errors.Is(err, ErrCacheFull) || errors.Is(err, ErrQueuesFull) || errors.Is(err, ErrAdmissionExpired) {

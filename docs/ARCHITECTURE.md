@@ -8,7 +8,7 @@
 4. Ready peers receive bounded local queue entries for transaction broadcast.
 5. The peer writer sends eth transaction messages. A completed write is not a peer acknowledgment or an inclusion result.
 
-HTTP 202 with `stage: queued` means at least one local peer queue accepted the item. HTTP 202 with `stage: cached` has zero new admissions because currently eligible peers already received a queue entry for that hash. No ready peers produces HTTP 503; lack of cache or eligible queue capacity produces HTTP 429. These are local transport states, not propagation guarantees. Cache contents and queues are not durable.
+HTTP 202 with `stage: queued` means at least one local peer queue accepted the item. HTTP 202 with `stage: cached` has zero new admissions because currently eligible peers already received a queue entry for that hash. No ready peers, or a Node already stopping at the admission check, produces HTTP 503; lack of cache or eligible queue capacity produces HTTP 429. These are local transport states, not propagation guarantees. Cache contents and queues are not durable.
 
 ## Dependency and protocol boundary
 
@@ -31,6 +31,11 @@ An unsynced genesis-based identity may be accepted by compatible peers under for
 Ordinary broadcasts use Transactions (`0x02`) and transaction-aware RLP encoding. Legacy transaction lists and typed transaction byte envelopes must remain distinct.
 
 GetPooledTransactions (`0x09`) receives a PooledTransactions (`0x0a`) response with the matching request ID and available cached transactions. Missing or expired items are not fabricated.
+The bounded request list is resolved in request order at write time under one
+cache lock; encoding and socket I/O happen after that lock is released. The
+existing byte budget is the sum of serialized transaction sizes, not the
+encoded response envelope. The first available item that would exceed the
+budget ends the scan; later smaller items are not considered.
 
 GetBlockHeaders, GetBlockBodies, and GetReceipts receive empty responses with the matching request IDs because the relay has no chain database. In the reviewed BSC client, explicit required-block challenges allow empty headers for unsynced peers; ignoring them instead would cause timeout/disconnection. Other peer policies may still reject or drop the relay.
 

@@ -262,13 +262,24 @@ count physical entries at their sampling instant; the final per-hash ledger
 checks deadlines at its own later instant. An expired entry awaiting pruning can
 therefore appear physically present but not unexpired in that ledger.
 
+`--help` (or `-h`) prints usage without starting the workload. Unsupported
+or extra arguments exit 2 before acquiring the lock or creating artifacts.
+
 Each run creates a new `/tmp/bsc-relay-unique.*` directory containing
 `environment.txt` (Go, OS, revision, source fingerprints, process settings),
 `report.json` (phases, ledgers, occupancy, transport outcomes, measured intervals),
-`test.log` (complete stdout/stderr including failures) and `exit-code.txt`.
-Reports use exclusive creation. Early failures still finalize scenario evidence;
-a process kill/global Go timeout can prevent JSON cleanup, so missing JSON is
-never success. Keep the full log and nonzero exit code. The only finite-stream
+`test.log` (combined test stdout/stderr) and, when writable,
+`exit-code.txt` (final wrapper status). Log capture failure reports both pipeline
+statuses on stderr. A nonzero Go process status takes precedence (it may reflect
+a broken pipe, not a test assertion failure); otherwise the log status is used.
+Do not count a partial log as a clean run.
+Reports use exclusive creation. After a successful Go run and log capture, the
+wrapper uses Python 3 to require a regular, non-symlink `report.json` of at
+most 4 MiB, with valid UTF-8 JSON, the expected synthetic harness revision,
+and `passed: true`. It does not recheck every metric. Early failures still
+finalize scenario evidence when possible.
+A process kill/global Go timeout can prevent report cleanup output. Keep the
+full log and the original nonzero status when available. The only finite-stream
 rate denominator is its actual measured interval, excluding fixture setup and
 teardown; the report also records total scenario elapsed time separately.
 

@@ -104,7 +104,7 @@ func TestOfficialBSCTxPoolLoopback(t *testing.T) {
 	n := protocolNode(t)
 	// Only test code can select this synthetic genesis. Production network
 	// configuration remains limited to mainnet/testnet with no override.
-	n.chain = &chainView{config: &chainConfig, genesis: genesis.ToBlock()}
+	n.chain = newChainView(&chainConfig, genesis.ToBlock())
 	n.server.NetRestrict = loopback
 	if err := n.Start(); err != nil {
 		t.Fatal(err)

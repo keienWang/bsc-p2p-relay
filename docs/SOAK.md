@@ -9,13 +9,25 @@ new evidence](SOAK_HTTP_VALIDATION.md).
 
 ## Reproduce
 
+`--help` (or `-h`) prints usage without starting the workload. Unsupported
+or extra arguments exit 2 before acquiring the lock or creating artifacts.
+
 Use Go 1.26.11 and the repository's pinned BSC v1.8.2 dependencies, downloaded
 before the run. The script uses `GOTOOLCHAIN=local`, `GOPROXY=off`, a shared
 `flock`, and GOMAXPROCS=2 by default. It starts at most one load process and
-preserves environment metadata, a JSON report, the full log, and exit code in a
-new temporary directory. A report is created exclusively, never overwritten.
-A process kill or Go timeout may prevent JSON cleanup output; retain the full
-log and nonzero exit code instead of interpreting a missing report as success.
+writes environment metadata, a JSON report, the test log, and, if writable,
+the final wrapper status to a new temporary directory. A report is created
+exclusively, never overwritten. If log capture fails, stderr reports both
+pipeline statuses, and the wrapper uses the nonzero log status if Go returned
+zero. Otherwise Go's process status takes precedence; with a broken pipeline
+that status is not necessarily a test assertion failure. Do not treat a
+partial log as complete evidence. If Go and log capture both succeed, the
+wrapper uses Python 3 to require a regular, non-symlink `report.json` of at
+most 4 MiB, with valid UTF-8 JSON, the expected synthetic harness revision,
+and both occupancy results. This is a basic evidence check, not a recheck
+of every metric. A process
+kill or Go timeout may prevent report cleanup output; keep any partial evidence
+and the original nonzero status when available.
 
 ```sh
 ./scripts/run_relay_soak.sh

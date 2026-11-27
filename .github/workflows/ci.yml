@@ -17,6 +17,8 @@ jobs:
         run: |
           go version
           test "$(go env GOVERSION)" = go1.26.11
+      - name: Check runbook and statistics documentation
+        run: make check-docs
       - run: go mod download
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
@@ -24,6 +26,9 @@ jobs:
       - name: Test the default graph with the qualified linker policy
         timeout-minutes: 6
         run: python3 scripts/linux_build.py race
+      - name: Verify static peer redial and HTTP readiness on loopback
+        timeout-minutes: 6
+        run: python3 scripts/linux_build.py loopback-test
       - name: Build and check the Linux delivery artifact
         timeout-minutes: 4
         run: python3 scripts/linux_build.py build-linux-amd64 --output bsc-relay
@@ -31,6 +36,7 @@ jobs:
         timeout-minutes: 1
         run: bash scripts/collect_binary_metadata.sh
       - run: python3 scripts/smoke.py ./bsc-relay
+      - run: python3 scripts/check_flag_defaults.py ./bsc-relay
       - run: python3 scripts/check_runtime_dependencies.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
   official_txpool:

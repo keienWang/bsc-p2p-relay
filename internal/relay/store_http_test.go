@@ -57,7 +57,7 @@ func bareNode(t *testing.T) *Node {
 }
 func addFakePeer(n *Node, receive bool, capacity int) *peerSession {
 	p := &peerSession{receiveTx: receive, queue: make(chan outbound, capacity), done: make(chan struct{})}
-	n.peers[enode.ID{1}] = p
+	n.setPeerLocked(enode.ID{1}, p)
 	return p
 }
 
@@ -70,6 +70,49 @@ func TestValidateSignedTransactions(t *testing.T) {
 		}
 	}
 }
+func TestValidateDynamicFeeBoundsAndOrdering(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chainID := big.NewInt(56)
+	signer := types.LatestSignerForChainID(chainID)
+	to := common.Address{19: 1}
+	overflow := new(big.Int).Lsh(big.NewInt(1), 256)
+	maximum := new(big.Int).Sub(overflow, big.NewInt(1))
+	zero, one := big.NewInt(0), big.NewInt(1)
+	const wide = "transaction value or fee exceeds uint256"
+	for _, tc := range []struct {
+		name, want      string
+		value, fee, tip *big.Int
+	}{
+		{"equal_at_maximum", "", maximum, maximum, maximum},
+		{"equal_at_zero", "", zero, zero, zero},
+		{"tip_above_fee", "max priority fee exceeds max fee", zero, zero, one},
+		{"value_overflow", wide, overflow, one, one},
+		{"fee_overflow", wide, zero, overflow, one},
+		{"tip_overflow_precedes_ordering", wide, zero, one, overflow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// This signed fixture is decoded locally only; never submitted.
+			tx := types.NewTx(&types.DynamicFeeTx{ChainID: chainID, To: &to, Gas: 21000,
+				Value: tc.value, GasFeeCap: tc.fee, GasTipCap: tc.tip})
+			signed, err := types.SignTx(tx, signer, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, sender, err := validate(rawFixture(t, signed), chainID)
+			if tc.want != "" {
+				if err == nil || err.Error() != tc.want || got != nil || sender != (common.Address{}) {
+					t.Fatalf("validate = (%v, %v, %v), want no transaction/sender and error %q", got, sender, err, tc.want)
+				}
+			} else if err != nil || got == nil || got.Hash() != signed.Hash() || sender != crypto.PubkeyToAddress(key.PublicKey) {
+				t.Fatalf("validate = (%v, %v, %v), want the original transaction and recovered sender", got, sender, err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsWrongChainAndMalformed(t *testing.T) {
 	for _, raw := range [][]byte{nil, {1, 2, 3}, bytes.Repeat([]byte{0}, MaxRawTransaction+1), rawFixture(t, fixtureTx(t, 97, 1, false))} {
 		if _, _, err := validate(raw, big.NewInt(56)); err == nil {
@@ -241,7 +284,7 @@ func TestExpiredCacheDoesNotSuppressRequeue(t *testing.T) {
 	// Advance both synchronized expiration records without a wall-clock sleep.
 	expired := time.Now().Add(-time.Second)
 	setCacheExpiryForTest(t, n.cache, expired, tx.Hash())
-	p.sent[tx.Hash()] = expired
+	p.recordSent(tx.Hash(), expired)
 	got, err := n.Submit(raw)
 	if err != nil || got.Duplicate || got.QueuedPeers != 1 || len(p.queue) != 2 {
 		t.Fatalf("expired requeue: %+v %v", got, err)

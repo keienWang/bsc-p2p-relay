@@ -79,6 +79,10 @@ leftover arguments fail startup rather than silently ignoring later flags. Use
 `--no-discovery=false` to supply an explicit boolean value, not
 `--no-discovery false`.
 
+For an isolated status-only rehearsal, follow the
+[loopback observation commands](docs/OPERATIONS.md#local-start-inspection-and-stop).
+`--observe-only` disables HTTP transaction submission, not P2P networking.
+
 Do not expose the HTTP API through a reverse proxy, tunnel, or public port forward. It has no authentication and this milestone disallows a remote API listener. The P2P listener is a separate network surface.
 
 ## HTTP API
@@ -100,7 +104,7 @@ On accepted submission, HTTP 202 returns `hash`, `sender`, `queued_peers`, `dupl
 - `queued_peers` counts local peer queue admissions, not acknowledgments from the network. It can be zero.
 - `duplicate` identifies an already cached submission; it is not an inclusion check.
 - `stage: queued` means at least one local queue admission. `stage: cached` means a duplicate has no new eligible peer.
-- With no ready peer, the request returns HTTP 503. A full cache or full eligible peer queues returns HTTP 429.
+- With no ready peer, or if the Node is already stopping at admission, the request returns HTTP 503. A full cache or full eligible peer queues returns HTTP 429.
 - Resubmitting a cached transaction can enqueue it to a newly connected peer. The same transaction is not repeatedly queued to the same peer within its TTL.
 
 Request size and resource limits apply. Invalid or unsupported transactions are rejected. A successful HTTP response is not a receipt and provides no execution guarantee.
@@ -111,7 +115,7 @@ Returns process health and relay metrics. Health does not establish network deli
 
 ### GET /readyz
 
-Reports whether peers are ready for relay transport. Readiness does not prove peer honesty, chain synchronization, or transaction acceptance.
+Returns HTTP 200 if the snapshot reports a receive-capable peer, or 503 otherwise. Once the snapshot observes Node shutdown, it reports zero ready peers even if some sessions are still registered. Readiness does not prove peer honesty, chain synchronization, or transaction acceptance.
 
 ### GET /v1/stats
 

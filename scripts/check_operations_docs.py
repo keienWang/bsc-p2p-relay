@@ -6,6 +6,7 @@ No subprocesses, imports outside the standard library, or network requests.
 Only the changed operator docs and their local link targets are inspected.
 """
 
+import itertools
 import pathlib
 import re
 import sys
@@ -126,12 +127,36 @@ def check_contracts(doc, cli, node, http, store):
     return errors
 
 
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def prose_lines(markdown):
+    """Yield prose lines, with a boundary for each standalone fenced example."""
+    opening = None
+    for line in markdown.splitlines():
+        fence = FENCE.fullmatch(line)
+        if opening is not None:
+            if (fence and fence[1][0] == opening[0] and len(fence[1]) >= len(opening)
+                    and not fence[2].strip()):
+                opening = None
+        elif fence and (fence[1][0] == "~" or "`" not in fence[2]):
+            opening = fence[1]
+            yield None
+        else:
+            yield line
+
+
 def heading_anchors(markdown):
     """Enough GitHub-style heading slugs for this repository's simple headings."""
     counts = {}
     anchors = set()
-    for heading in re.findall(r"^#{1,6} +(.+?)\s*#*\s*$", markdown, re.MULTILINE):
-        slug = re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
+    for line in prose_lines(markdown):
+        if line is None:
+            continue
+        heading = re.fullmatch(r" {0,3}#{1,6} +(.+?)\s*#*\s*", line)
+        if heading is None:
+            continue
+        slug = re.sub(r"[^\w -]", "", heading[1].lower()).replace(" ", "-")
         count = counts.get(slug, 0)
         counts[slug] = count + 1
         anchors.add(f"{slug}-{count}" if count else slug)
@@ -141,7 +166,13 @@ def heading_anchors(markdown):
 def check_links(root, relative):
     document = root / relative
     errors = []
-    for destination in re.findall(r"\[[^\]]*\]\(([^)\s]+)\)", document.read_text()):
+    # Keep multiline labels in prose, but never form a link across a fence.
+    blocks = ("\n".join(lines) for prose, lines in
+              itertools.groupby(prose_lines(document.read_text()), lambda line: line is not None)
+              if prose)
+    destinations = (destination for block in blocks
+                    for destination in re.findall(r"\[[^\]]*\]\(([^)\s]+)\)", block))
+    for destination in destinations:
         link = urllib.parse.urlsplit(destination)
         if link.scheme or link.netloc:
             continue  # Deliberately do not fetch or validate external destinations.

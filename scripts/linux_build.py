@@ -116,12 +116,17 @@ def check_archive(native):
     emit('herumi_archive_after', before)
 
 
+def source_commit(runner, label):
+    commit = runner.run(label, ['git', 'rev-parse', '--verify', 'HEAD']).strip()
+    require(bool(re.fullmatch('[0-9a-f]{40}', commit)), 'invalid source commit')
+    return commit
+
+
 def source_identity(runner):
-    identity = {}
-    for key, arg in [('commit', 'HEAD'), ('tree', 'HEAD^{tree}')]:
-        value = runner.run('source-' + key, ['git', 'rev-parse', '--verify', arg]).strip()
-        require(bool(re.fullmatch('[0-9a-f]{40}', value)), 'invalid source ' + key)
-        identity[key] = value
+    commit = source_commit(runner, 'source-commit')
+    tree = runner.run('source-tree', ['git', 'rev-parse', '--verify', commit + '^{tree}']).strip()
+    require(bool(re.fullmatch('[0-9a-f]{40}', tree)), 'invalid source tree')
+    identity = {'commit': commit, 'tree': tree}
     identity['status'] = runner.run('source-status', ['git', 'status', '--porcelain', '--untracked-files=normal'])
     identity['clean_before_build'] = not identity['status'].strip()
     identity['binding'] = 'checkout context only; not an exact compiled-source attestation'
@@ -173,12 +178,24 @@ def existing_output(path):
     return regular_digest(path)
 
 
+def output_directory_identity(path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    require(stat.S_ISDIR(info.st_mode), 'output parent must be a regular directory, not a symlink')
+    return info.st_dev, info.st_ino
+
+
 def build(runner, output, source, native):
     target = runner.root / output
     require(output in OUTPUTS, 'unsupported output path')
     # Only fixed root/bin destinations are supported. Do not follow a bin symlink.
-    require(not target.parent.is_symlink(), 'output parent must not be a symlink')
-    target.parent.mkdir(exist_ok=True)
+    parent = target.parent
+    if output_directory_identity(parent) is None:
+        parent.mkdir(exist_ok=True)
+    original_parent = output_directory_identity(parent)
+    require(original_parent is not None, 'output parent disappeared')
     old = existing_output(target)
     # A private temporary directory on the destination filesystem keeps the
     # install atomic. No build/check failure replaces the previous good artifact.
@@ -187,11 +204,17 @@ def build(runner, output, source, native):
         argv = ['go', 'build', '-mod=readonly', '-trimpath', '-buildvcs=false',
                 '-ldflags=' + LINK_POLICY, '-o', str(staged), './cmd/bsc-relay']
         runner.run('qualified-relay-build', argv, 180)
+        require(output_directory_identity(parent) == original_parent,
+                'output parent changed during build; not installing artifact')
         artifact = metadata(runner, staged)
         require(staged.stat().st_mode & 0o111, 'built artifact is not executable')
-        require(existing_output(target) == old, 'output changed concurrently; not replacing it')
         require(inspect_file(staged) == artifact, 'staged artifact changed before install')
         check_archive(native)
+        require(source_commit(runner, 'source-commit-before-install') == source['commit'],
+                'source HEAD changed during build; not replacing the previous artifact')
+        require(output_directory_identity(parent) == original_parent,
+                'output parent changed during build; not installing artifact')
+        require(existing_output(target) == old, 'output changed concurrently; not replacing it')
         # All policy checks precede replacement. There is no fallback to an old
         # binary or unchecked build on failure. A rename is not a runtime test.
         os.replace(staged, target)
@@ -238,9 +261,49 @@ def official_test(runner, source, native):
                                 'canonical_child_covered': False})
 
 
+LOOPBACK_TEST = 'TestStaticPeerLoopbackRecovery'
+LOOPBACK_REQUIRED_CASES = ('repeated_redial', 'opt_out_stays_connected', 'close_isolates_live_transport')
+
+
+def validate_loopback_output(output):
+    lines = output.splitlines()
+    starts = [i for i, line in enumerate(lines) if line == '=== RUN   ' + LOOPBACK_TEST]
+    passes = [i for i, line in enumerate(lines) if re.fullmatch(
+        r'--- PASS: ' + LOOPBACK_TEST + r' \([0-9]+(?:\.[0-9]+)?s\)', line)]
+    require(len(starts) == len(passes) == 1 and starts[0] < passes[0],
+            'loopback recovery requires one RUN then PASS')
+    require(lines.count('PASS') == 1 and lines.index('PASS') > passes[0],
+            'loopback recovery requires final package PASS')
+    package_pass = lines.index('PASS')
+    # Go can print an overall PASS even when required subtests never run or skip.
+    # A child RUN follows the parent RUN; verbose Go prints child results beneath
+    # the parent summary, before the package PASS.
+    for case in LOOPBACK_REQUIRED_CASES:
+        name = LOOPBACK_TEST + '/' + case
+        child_starts = [i for i, line in enumerate(lines) if line == '=== RUN   ' + name]
+        results = []
+        for i, line in enumerate(lines):
+            result = re.fullmatch(r'\s*--- (PASS|SKIP|FAIL): ' + re.escape(name)
+                                  + r' \([0-9]+(?:\.[0-9]+)?s\)', line)
+            if result:
+                results.append((i, result[1]))
+        require(len(child_starts) == len(results) == 1 and results[0][1] == 'PASS'
+                and starts[0] < child_starts[0] < passes[0] < results[0][0] < package_pass,
+                'loopback recovery requires one RUN then PASS for ' + name)
+
+
+def loopback_test(runner, source, native):
+    argv = ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + LINK_POLICY,
+            '-tags=loopbackrecovery', '-run', '^' + LOOPBACK_TEST + '$',
+            '-count=1', '-timeout=135s', '-v', './internal/relay']
+    validate_loopback_output(runner.run('static-peer-loopback-test', argv, 240))
+    check_archive(native)
+    emit('loopback_test_result', {'source': source, 'argv': argv, 'link_policy': LINK_POLICY})
+
+
 def dispatch(runner, action, output):
     # Leave at least 30 seconds before each CI outer step deadline for cleanup.
-    budget = {'build': 210, 'build-linux-amd64': 210, 'race': 330, 'official-test': 450}
+    budget = {'build': 210, 'build-linux-amd64': 210, 'race': 330, 'official-test': 450, 'loopback-test': 330}
     require(action in budget and output in OUTPUTS, 'unsupported operation or output')
     runner.deadline = min(runner.deadline, time.monotonic() + budget[action])
     environment = read_environment(runner)
@@ -265,6 +328,8 @@ def dispatch(runner, action, output):
                    '-count=1', '-timeout=180s', './...'], 240)
         check_archive(native)
         emit('default_race_result', {'source': source, 'link_policy': LINK_POLICY, 'canonical_child_covered': False})
+    elif action == 'loopback-test':
+        loopback_test(runner, source, native)
     elif action == 'official-test':
         official_test(runner, source, native)
     else:
@@ -273,7 +338,7 @@ def dispatch(runner, action, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('build', 'build-linux-amd64', 'race', 'official-test'))
+    parser.add_argument('action', choices=('build', 'build-linux-amd64', 'race', 'official-test', 'loopback-test'))
     parser.add_argument('--output', choices=OUTPUTS, default=OUTPUTS[0])
     args = parser.parse_args()
     dispatch(BuildRunner(ROOT), args.action, args.output)

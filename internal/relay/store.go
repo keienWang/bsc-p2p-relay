@@ -95,6 +95,17 @@ func (s *store) removeLocked(e *cacheEntry) {
 	}
 }
 
+// release drops the in-memory cache backing once admission has stopped.
+// Locked reads and pruning still observe an empty store.
+func (s *store) release() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = nil
+	s.expiries = nil
+	s.bytes = 0
+	s.expiryUpperBound = time.Time{}
+}
+
 func (s *store) prune(now time.Time) { s.mu.Lock(); defer s.mu.Unlock(); s.pruneLocked(now) }
 func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
 	s.mu.Lock()
@@ -129,20 +140,52 @@ func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
 func (s *store) get(h common.Hash, now time.Time) *types.Transaction {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e, ok := s.entries[h]
-	if !ok {
-		return nil
+	if entry := s.getEntryLocked(h, now); entry != nil {
+		return entry.tx
 	}
-	if !now.Before(e.expires) {
+	return nil
+}
+
+func (s *store) getEntryLocked(h common.Hash, now time.Time) *cacheEntry {
+	e := s.entries[h]
+	if e != nil && !now.Before(e.expires) {
 		s.removeLocked(e)
 		return nil
 	}
-	return e.tx
+	return e
+}
+
+// pooledTransactions takes one cache lock for the bounded list already
+// validated by the wire handler. Transaction size was recorded at admission;
+// encoding and transport run only after unlocking.
+func (s *store) pooledTransactions(hashes []common.Hash, now time.Time, maxBytes int) types.Transactions {
+	if len(hashes) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var txs types.Transactions
+	for _, hash := range hashes {
+		e := s.getEntryLocked(hash, now)
+		if e == nil {
+			continue
+		}
+		if e.size > maxBytes {
+			break
+		}
+		txs = append(txs, e.tx)
+		maxBytes -= e.size
+	}
+	return txs
 }
 func (s *store) stats() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pruneLocked(time.Now())
+	// Empty caches have no deadlines to compare. Skip the clock read
+	// when no transaction has been cached or the last entry has expired.
+	if len(s.expiries) != 0 {
+		s.pruneLocked(time.Now())
+	}
 	return len(s.entries), s.bytes
 }
 
@@ -168,10 +211,13 @@ func validate(raw []byte, chainID *big.Int) (*types.Transaction, common.Address,
 	if tx.Gas() < 21000 {
 		return nil, zero, errors.New("gas limit is below 21000")
 	}
-	if tx.Value().BitLen() > 256 || tx.GasFeeCap().BitLen() > 256 || tx.GasTipCap().BitLen() > 256 {
+	// The transaction getters return defensive copies. Read each cap once
+	// for both the width and ordering checks.
+	fee, tip := tx.GasFeeCap(), tx.GasTipCap()
+	if tx.Value().BitLen() > 256 || fee.BitLen() > 256 || tip.BitLen() > 256 {
 		return nil, zero, errors.New("transaction value or fee exceeds uint256")
 	}
-	if tx.GasTipCap().Cmp(tx.GasFeeCap()) > 0 {
+	if tip.Cmp(fee) > 0 {
 		return nil, zero, errors.New("max priority fee exceeds max fee")
 	}
 	canonical, err := tx.MarshalBinary()

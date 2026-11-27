@@ -262,7 +262,7 @@ func newSoakPeer(t *testing.T, n *Node, id byte, kind string, delay time.Duratio
 	}
 	awaitProtocol(t, result)
 	n.mu.Lock()
-	n.peers[p.peer.ID()] = p
+	n.setPeerLocked(p.peer.ID(), p)
 	n.mu.Unlock()
 	stats.count("peer_sessions", 1)
 	go func() { defer close(sp.writerDone); n.writer(p) }()
@@ -324,9 +324,7 @@ func (sp *soakPeer) close(t *testing.T, n *Node) {
 	sp.once.Do(func() {
 		n.submitMu.Lock()
 		n.mu.Lock()
-		if n.peers[sp.p.peer.ID()] == sp.p {
-			delete(n.peers, sp.p.peer.ID())
-		}
+		n.removePeerLocked(sp.p.peer.ID(), sp.p)
 		close(sp.p.done)
 		n.mu.Unlock()
 		n.submitMu.Unlock()

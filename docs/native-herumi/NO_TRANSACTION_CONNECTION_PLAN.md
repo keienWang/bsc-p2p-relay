@@ -6,14 +6,14 @@ Status: preparation only. No host has been selected and no connection experiment
 
 An operator must approve the host, unprivileged process user, network, exact peer enodes and outbound TCP destinations, runtime limit, resource/traffic budget and stop owner. The host must be controlled, without untrusted local API callers. Keep HTTP on a literal loopback address, disable discovery, and do not expose HTTP through a proxy, tunnel or published container port. Do not add RPC, wallet/signing keys, a historical database, persistent remote access or private project inputs.
 
-**The existing executable still exposes `POST /v1/transactions`.** It has no dedicated command-line mode that disables submission. This plan relies on an approved controlled host, restricted local callers and a prohibition on POST requests. It does not claim the process is technically incapable of submitting transactions.
+Use an artifact with `--observe-only` and confirm its startup reports `observe_only=true`. This preserves the observation endpoints but rejects requests to the transaction endpoint before the handler parses or admits a transaction. It does not disable normal P2P protocol replies, replace host controls, or apply to earlier binaries without this flag.
 
 ## Proposed process configuration
 
 After approval and artifact/libc compatibility checks, the command shape is:
 
 ```sh
-bsc-relay --network mainnet --no-discovery \
+bsc-relay --network mainnet --no-discovery --observe-only \
   --p2p 127.0.0.1:0 --api 127.0.0.1:8787 --max-peers 3 \
   --peer '<approved-enode-1>' --peer '<approved-enode-2>'
 ```

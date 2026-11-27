@@ -90,7 +90,7 @@ func TestOfficialBSC68Handshake(t *testing.T) {
 			if local.receiveTx == disable {
 				t.Fatalf("receiveTx=%t, remote disable=%t", local.receiveTx, disable)
 			}
-			n.peers[local.peer.ID()] = local
+			n.setPeerLocked(local.peer.ID(), local)
 			raw, err := protocolTransactions(t)[0].MarshalBinary()
 			if err != nil {
 				t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/forkid"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -54,13 +55,15 @@ type pooledReply struct {
 }
 
 type peerSession struct {
-	sentNextSweep time.Time // Protected by Node.submitMu.
-	peer          *p2p.Peer
-	rw            p2p.MsgReadWriter
-	queue         chan outbound
-	done          chan struct{}
-	receiveTx     bool
-	sent          map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
+	sentNextSweep   time.Time // Protected by Node.submitMu.
+	sentExpiryFloor time.Time // <= every deadline while sent is nonempty; may be stale after a deletion.
+	sentExpiryCeil  time.Time // >= every deadline while sent is nonempty; may be stale after a deletion.
+	peer            *p2p.Peer
+	rw              p2p.MsgReadWriter
+	queue           chan outbound
+	done            chan struct{}
+	receiveTx       bool                      // Set by handshake before registration, immutable while registered.
+	sent            map[common.Hash]time.Time // Protected by Node.submitMu; bounded by cache admission + TTL.
 }
 type Node struct {
 	stats           runtimeStats
@@ -71,6 +74,7 @@ type Node struct {
 	server          *p2p.Server
 	mu              sync.RWMutex
 	peers           map[enode.ID]*peerSession
+	readyPeers      int // Protected with peers by mu; update via the session helpers.
 	stop            chan struct{}
 	lifecycleMu     sync.Mutex // Serializes Start, Close, and their terminal state.
 	started         bool
@@ -98,14 +102,57 @@ type Health struct {
 	ConfirmationTracking bool   `json:"confirmation_tracking"`
 }
 
-func New(cfg Config) (*Node, error) {
+type preparedConfig struct {
+	genesis      func() *core.Genesis
+	peers, boots []*enode.Node
+}
+
+// ValidateConfig checks network, cache limits, and peer syntax without
+// creating runtime identities or constructing a chain view or Node.
+// Listener address syntax is the caller's responsibility.
+func ValidateConfig(cfg Config) error {
+	_, err := prepareConfig(cfg)
+	return err
+}
+
+func prepareConfig(cfg Config) (preparedConfig, error) {
 	if cfg.MaxPeers < 1 || cfg.MaxPeers > 200 || cfg.CacheCount < 1 || cfg.CacheBytes < MaxRawTransaction || cfg.CacheTTL <= 0 {
-		return nil, errors.New("invalid peer or cache limits")
+		return preparedConfig{}, errors.New("invalid peer or cache limits")
 	}
-	chain, err := network(cfg.Network)
+	genesis, err := genesisConstructor(cfg.Network)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	var peers, boots []*enode.Node
+	for _, url := range cfg.Peers {
+		peer, err := enode.Parse(enode.ValidSchemes, url)
+		if err != nil {
+			return preparedConfig{}, fmt.Errorf("invalid peer: %w", err)
+		}
+		peers = append(peers, peer)
+	}
+	if !cfg.NoDiscovery && cfg.Network == "mainnet" {
+		for _, url := range params.MainnetBootnodes {
+			peer, err := enode.Parse(enode.ValidSchemes, url)
+			if err != nil {
+				return preparedConfig{}, err
+			}
+			boots = append(boots, peer)
+		}
+	}
+	if cfg.Network == "testnet" && len(peers) == 0 {
+		return preparedConfig{}, errors.New("testnet requires at least one explicit --peer; no mainnet bootnodes are used")
+	}
+
+	return preparedConfig{genesis: genesis, peers: peers, boots: boots}, nil
+}
+
+func New(cfg Config) (*Node, error) {
+	prepared, err := prepareConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	chain := chainFromGenesis(prepared.genesis())
 	identity, err := newStatsIdentity(cryptorand.Reader)
 	if err != nil {
 		return nil, err
@@ -115,27 +162,7 @@ func New(cfg Config) (*Node, error) {
 		return nil, err
 	}
 	n := &Node{stats: runtimeStats{identity: identity}, cfg: cfg, chain: chain, cache: newStore(cfg.CacheCount, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
-	var peers, boots []*enode.Node
-	for _, url := range cfg.Peers {
-		peer, err := enode.Parse(enode.ValidSchemes, url)
-		if err != nil {
-			return nil, fmt.Errorf("invalid peer: %w", err)
-		}
-		peers = append(peers, peer)
-	}
-	if !cfg.NoDiscovery && cfg.Network == "mainnet" {
-		for _, url := range params.MainnetBootnodes {
-			peer, err := enode.Parse(enode.ValidSchemes, url)
-			if err != nil {
-				return nil, err
-			}
-			boots = append(boots, peer)
-		}
-	}
-	if cfg.Network == "testnet" && len(peers) == 0 {
-		return nil, errors.New("testnet requires at least one explicit --peer; no mainnet bootnodes are used")
-	}
-	n.server = &p2p.Server{Config: p2p.Config{PrivateKey: key, Name: "bsc-p2p-relay/0.1.0", MaxPeers: cfg.MaxPeers, MaxPeersPerIP: 4, MaxPendingPeers: 8, DialRatio: 1, ListenAddr: cfg.ListenAddr, NoDiscovery: cfg.NoDiscovery, DiscoveryV4: !cfg.NoDiscovery, BootstrapNodes: boots, StaticNodes: peers, NodeDatabase: "", Protocols: []p2p.Protocol{{Name: "eth", Version: 68, Length: 17, Run: n.runPeer}}}}
+	n.server = &p2p.Server{Config: p2p.Config{PrivateKey: key, Name: "bsc-p2p-relay/0.1.0", MaxPeers: cfg.MaxPeers, MaxPeersPerIP: 4, MaxPendingPeers: 8, DialRatio: 1, ListenAddr: cfg.ListenAddr, NoDiscovery: cfg.NoDiscovery, DiscoveryV4: !cfg.NoDiscovery, BootstrapNodes: prepared.boots, StaticNodes: prepared.peers, NodeDatabase: "", Protocols: []p2p.Protocol{{Name: "eth", Version: 68, Length: 17, Run: n.runPeer}}}}
 	return n, nil
 }
 
@@ -171,20 +198,26 @@ func (n *Node) Start() error {
 		defer close(n.maintenanceDone)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		for {
-			select {
-			case now := <-ticker.C:
-				n.prune(now)
-			case <-n.stop:
-				return
-			}
-		}
+		n.maintenanceLoop(ticker.C)
 	}()
 	return nil
 }
 
-// Close is idempotent and terminal, including before Start. It waits for local
-// maintenance and delegates transport shutdown to the upstream P2P server.
+func (n *Node) maintenanceLoop(ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ticks:
+			// A tick can describe an older scheduled instant after a stall.
+			// Evaluate expiry at the start of the actual maintenance pass.
+			n.prune(time.Now())
+		case <-n.stop:
+			return
+		}
+	}
+}
+
+// Close is idempotent and terminal, including before Start. It delegates
+// transport shutdown, waits for local maintenance, and releases the cache.
 func (n *Node) Close() {
 	n.lifecycleMu.Lock()
 	defer n.lifecycleMu.Unlock()
@@ -204,19 +237,53 @@ func (n *Node) closeLocked() {
 	if n.maintenanceDone != nil {
 		<-n.maintenanceDone
 	}
+	// An admission already past its stop check can still touch the cache.
+	// Wait for it before dropping storage; later admissions see n.stop.
+	n.submitMu.Lock()
+	n.cache.release()
+	n.submitMu.Unlock()
 }
 func (n *Node) Enode() string { return n.server.Self().URLv4() }
+
+// setPeerLocked registers a handshaken session. It also tolerates replacement
+// of the same ID without counting both sessions. The caller must hold n.mu.
+func (n *Node) setPeerLocked(id enode.ID, session *peerSession) {
+	if old := n.peers[id]; old != nil && old.receiveTx {
+		n.readyPeers--
+	}
+	n.peers[id] = session
+	if session.receiveTx {
+		n.readyPeers++
+	}
+}
+
+// removePeerLocked removes only the exact session that is leaving. A late
+// cleanup must not remove or decrement its replacement. The caller holds n.mu.
+func (n *Node) removePeerLocked(id enode.ID, session *peerSession) {
+	if current := n.peers[id]; current == nil || current != session {
+		return
+	}
+	delete(n.peers, id)
+	if session.receiveTx {
+		n.readyPeers--
+	}
+}
+
 func (n *Node) Health() Health {
 	n.mu.RLock()
-	ready, connected := 0, len(n.peers)
-	for _, p := range n.peers {
-		if p.receiveTx {
-			ready++
+	ready, connected := n.readyPeers, len(n.peers)
+	// Shutdown stops new admissions before transport deregisters sessions.
+	// Mask the observation, not the raw count used by peer cleanup.
+	if ready != 0 {
+		select {
+		case <-n.stop:
+			ready = 0
+		default:
 		}
 	}
 	n.mu.RUnlock()
 	count, bytes := n.cache.stats()
-	return Health{n.cfg.Network, n.chain.config.ChainID.String(), ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}
+	return Health{n.cfg.Network, n.chain.chainIDText, ready, connected, count, bytes, n.writes.Load(), n.writeFailures.Load(), false}
 }
 
 // Submit reports bounded local queue admission, never peer acceptance/inclusion.
@@ -237,14 +304,17 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	defer n.submitMu.Unlock()
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	available := false
-	for _, p := range n.peers {
-		if p.receiveTx {
-			available = true
-			break
-		}
+	// The upstream server can still be removing peers after Close signals
+	// stop. Reject before cache/queue work; this does not cancel a call that
+	// already passed this admission check.
+	select {
+	case <-n.stop:
+		return result, ErrNodeClosed, submitOther
+	default:
 	}
-	if !available {
+	// This is the negotiated receive capability, not queue capacity or a
+	// guarantee that the registered session has not begun closing.
+	if n.readyPeers == 0 {
 		return result, ErrNoPeers, submitRejectedNoPeers
 	}
 	fresh, err := n.cache.add(tx, time.Now())
@@ -272,9 +342,6 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 			continue
 		default:
 		}
-		if p.sent == nil {
-			p.sent = make(map[common.Hash]time.Time)
-		}
 		// Sweep at most once per second, unless the hard count bound needs
 		// space. The target entry is still checked exactly on every access.
 		if !now.Before(p.sentNextSweep) {
@@ -298,7 +365,7 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 		}
 		select {
 		case p.queue <- outbound{code: eth.TransactionsMsg, data: types.Transactions{tx}, expires: expires}:
-			p.sent[tx.Hash()] = expires
+			p.recordSent(tx.Hash(), expires)
 			result.QueuedPeers++
 		default:
 		}
@@ -391,9 +458,14 @@ func (n *Node) runPeer(peer *p2p.Peer, rw p2p.MsgReadWriter) error {
 		return err
 	}
 	n.mu.Lock()
-	n.peers[peer.ID()] = p
+	n.setPeerLocked(peer.ID(), p)
 	n.mu.Unlock()
-	defer func() { close(p.done); n.mu.Lock(); delete(n.peers, peer.ID()); n.mu.Unlock() }()
+	defer func() {
+		close(p.done)
+		n.mu.Lock()
+		n.removePeerLocked(peer.ID(), p)
+		n.mu.Unlock()
+	}()
 	go n.writer(p)
 	for {
 		msg, err := rw.ReadMsg()
@@ -418,6 +490,16 @@ func (n *Node) writer(p *peerSession) {
 		case <-n.stop:
 			return
 		case out := <-p.queue:
+			// The outer select may choose a ready queue even when cancellation is
+			// already visible. Recheck before encoding/writing that message; this
+			// does not cancel work already admitted to the write path.
+			select {
+			case <-p.done:
+				return
+			case <-n.stop:
+				return
+			default:
+			}
 			if out.code == eth.TransactionsMsg && (out.expires.IsZero() || !time.Now().Before(out.expires)) {
 				continue
 			}
@@ -498,19 +580,7 @@ func (n *Node) outboundData(out outbound) any {
 	if !ok {
 		return out.data
 	}
-	var txs types.Transactions
-	size := 0
-	now := time.Now()
-	for _, h := range reply.hashes {
-		if tx := n.cache.get(h, now); tx != nil {
-			if size+int(tx.Size()) > maxRequestMessage/2 {
-				break
-			}
-			txs = append(txs, tx)
-			size += int(tx.Size())
-		}
-	}
-	return []any{reply.requestID, txs}
+	return []any{reply.requestID, n.cache.pooledTransactions(reply.hashes, time.Now(), maxRequestMessage/2)}
 }
 
 // Periodic maintenance also releases expired per-peer hash metadata while idle.
@@ -525,12 +595,51 @@ func (n *Node) prune(now time.Time) {
 	}
 }
 
+// recordSent requires the owning node's submitMu.
+func (p *peerSession) recordSent(hash common.Hash, deadline time.Time) {
+	if p.sent == nil {
+		p.sent = make(map[common.Hash]time.Time)
+	}
+	if len(p.sent) == 0 {
+		p.sentExpiryFloor = deadline
+		p.sentExpiryCeil = deadline
+	} else {
+		if deadline.Before(p.sentExpiryFloor) {
+			p.sentExpiryFloor = deadline
+		}
+		if deadline.After(p.sentExpiryCeil) {
+			p.sentExpiryCeil = deadline
+		}
+	}
+	p.sent[hash] = deadline
+}
+
 // pruneSent requires the owning node's submitMu.
 func (p *peerSession) pruneSent(now time.Time) {
+	p.sentNextSweep = now.Add(time.Second)
+	if len(p.sent) == 0 || now.Before(p.sentExpiryFloor) {
+		return
+	}
+	if !now.Before(p.sentExpiryCeil) {
+		clear(p.sent) // Retain capacity for the next cohort, as with individual deletes.
+		p.sentExpiryFloor = time.Time{}
+		p.sentExpiryCeil = time.Time{}
+		return
+	}
+	var earliest time.Time
+	haveSurvivor := false
 	for hash, deadline := range p.sent {
 		if !now.Before(deadline) {
 			delete(p.sent, hash)
+			continue
 		}
+		if !haveSurvivor || deadline.Before(earliest) {
+			earliest = deadline
+		}
+		haveSurvivor = true
 	}
-	p.sentNextSweep = now.Add(time.Second)
+	p.sentExpiryFloor = earliest
+	if !haveSurvivor {
+		p.sentExpiryCeil = time.Time{} // The retained upper bound may have been stale.
+	}
 }

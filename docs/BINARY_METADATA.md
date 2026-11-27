@@ -59,3 +59,8 @@ issue, network interoperability, or production readiness.
 isolated fake tools and temporary files. It needs no Go installation, ELF
 execution, compilation or network. `bash -n scripts/collect_binary_metadata.sh`
 checks shell syntax. Neither substitutes for hosted inspection of a real build.
+
+The collector resolves the tree from its initial commit and checks HEAD again
+after inspection. A changed HEAD fails collection even if the binary did not
+change. This prevents mismatched commit/tree reporting; it does not attest that
+the binary was built from that commit or detect every transient checkout change.

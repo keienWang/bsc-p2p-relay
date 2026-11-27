@@ -12,6 +12,11 @@ BSC v1.8.2 imports STUN v2 in one production file, `p2p/nat/stun.go`. STUN v2 ha
 
 `go list -deps ./cmd/bsc-relay` contains DTLS v3 and no DTLS v2 package. The complete upstream module graph may still list obsolete DTLS v2 even though it is not in this executable’s compiled package graph. `scripts/check_runtime_dependencies.py` guards against its reintroduction. The replacement and nested module are recorded in go.mod/go.sum and the dependency inventory. BSC itself remains v1.8.2. An upstream BSC expansion of the STUN API must compile against and be reviewed with this deliberately limited adapter.
 
+The dependency guard requires the relay command in the application package
+list, the relay test binary in the test package list, and this repository's
+module in the module list. A successful but empty or unrelated list does not
+qualify. These checks do not attest to the entire graph or replace the scanner.
+
 ## Local verification
 
 - `make check smoke`: vet, full race suite, build, module verification and process startup/shutdown tests passed.

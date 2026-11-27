@@ -40,8 +40,13 @@ before_fingerprint=$fingerprint
 before_digest=$digest
 before_bytes=$bytes
 printf 'binary_path=%s\nbinary_bytes_before=%s\nbinary_sha256_before=%s\n' "$binary" "$bytes" "$digest"
-show git rev-parse --verify HEAD
-show git rev-parse --verify 'HEAD^{tree}'
+source_commit=$(checked git rev-parse --verify HEAD)
+[[ "$source_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'invalid source commit'
+# Resolve the tree from the original commit even if HEAD briefly moves.
+source_tree=$(checked git rev-parse --verify "${source_commit}^{tree}")
+[[ "$source_tree" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'invalid source tree'
+printf '\n== git rev-parse --verify HEAD ==\n%s\n' "$source_commit"
+printf '\n== git rev-parse --verify %s^{tree} ==\n%s\n' "$source_commit" "$source_tree"
 show file -- "$binary"
 show go version -m "$binary"
 show go tool buildid "$binary"
@@ -53,4 +58,6 @@ snapshot
 printf '\nbinary_bytes_after=%s\nbinary_sha256_after=%s\n' "$bytes" "$digest"
 [[ "$digest" == "$before_digest" ]] || fail 'binary SHA256 changed during metadata collection'
 [[ "$fingerprint" == "$before_fingerprint" && "$bytes" == "$before_bytes" ]] || fail 'binary identity or metadata changed during collection'
+current_commit=$(checked git rev-parse --verify HEAD)
+[[ "$current_commit" == "$source_commit" ]] || fail 'source HEAD changed during metadata collection'
 printf 'PASS: metadata collected from unchanged regular input; ELF properties require review, not a vulnerability verdict.\n'

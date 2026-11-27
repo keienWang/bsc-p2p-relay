@@ -1,7 +1,9 @@
 # Single-use Node lifecycle
 
-Status: local lifecycle hardening, **not production readiness**. This change does
-not alter wire messages, transaction admission, HTTP or statistics schemas.
+Status: local lifecycle hardening, **not production readiness**. The initial
+Start/Close ownership change did not alter transaction admission. The current
+contract below includes a later shutdown-only admission guard; wire messages
+and HTTP and statistics schemas are unchanged.
 
 ## Defect and supported behavior
 
@@ -22,16 +24,33 @@ The supported contract is now:
 - A Node is single-use. Start succeeds at most once.
 - Close is terminal and idempotent, even if Start has never been called.
 - Start after Close returns `ErrNodeClosed`; create a fresh Node to restart.
+- After validation, `Submit` returns `ErrNodeClosed` before cache or queue work
+  when shutdown is already visible at its admission check. This does not cancel
+  work past that check. An embedded handler reaching this state returns HTTP
+  503; the CLI normally drains HTTP first.
+- Health snapshots that observe shutdown report zero ready peers even while
+  handshaken sessions are still registered. An embedded handler then returns
+  503 for `/readyz` but still returns 200 for `/healthz` if the request
+  completes. The connected count continues to track actual deregistration.
 - A failed Start is also terminal. Its original startup error is returned, and a
   later Start returns `ErrNodeClosed`. Retrying configuration requires a new Node.
 - A duplicate Start on a running instance returns an error without stopping that
   instance or replacing its maintenance worker.
-- Start and Close serialize on a separate lifecycle mutex. Close waits for this
-  node's maintenance goroutine before returning. Concurrent Close callers wait
-  for the same serialized shutdown.
+- Start and Close serialize on a separate lifecycle mutex. Close waits for
+  local maintenance and any admission already past the stop check, then releases
+  the in-memory transaction cache, including its backing map and heap. A new
+  Health snapshot after Close has zero cached count and bytes; statistics
+  counters and the instance identity remain readable. Concurrent Close callers
+  wait for the same serialized shutdown.
 - Transport shutdown still uses the pinned upstream server. Its Stop can return
   on its own 15-second timeout; this patch does **not** promise that every peer
   goroutine or network write has stopped at that instant.
+
+The tagged loopback suite also closes a relay with a live handshaken TCP/RLPx
+session and checks listener release, exact local session cleanup, and peer
+disconnect. A second independent local relay and its ready session remain
+connected. This uses synthetic chains, no discovery, and no application traffic;
+it covers ordinary shutdown, not the upstream timeout path.
 
 No peer or cache lock is held while acquiring the lifecycle mutex. The maintenance
 loop takes cache, submission and peer locks but never calls Start/Close or acquires

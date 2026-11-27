@@ -30,6 +30,13 @@ Or pass `--source /path/to/checkout` for another local checkout. `make sbom` use
 
 Generation fixes `GOWORK=off`, `GOENV=off`, module mode and read-only module loading. Custom `GOFLAGS` (except `-buildvcs=false`) and nonempty `GOEXPERIMENT` are rejected, so overlays, alternate module files, vendor mode and custom build tags cannot silently change the source graph. Target `GOOS`, `GOARCH` and `CGO_ENABLED` remain supported and are recorded in the manifest. Before writing output, the script checks reference uniqueness/closure and rejects filesystem locations, credential-bearing URLs and URL queries/fragments. It does not sandbox malicious toolchains or verify that the public source passed CI; those are separate release checks.
 
+A validated manifest is written and synced in a private stage beside the
+destination, then atomically installed. A failed write or replace preserves
+the previous manifest; successful replacement retains its ordinary permission
+bits. The destination filename itself must not be a symlink, even if the link
+is dangling. Pass the intended manifest path directly. This provides atomic
+visibility, not power-loss durability for the destination directory.
+
 `make python-test` validates repository/adapter identities, environment isolation, reference rewriting/closure and output location safeguards without contacting the network. Generation metadata and tool binary hashes can differ by tool environment/time. The selected source commit and target build properties are the primary provenance anchors.
 
 A passing vulnerability scan, this manifest, and its valid schema do not imply production readiness. Keep the independent network, consensus/header, supply-chain audit and release gates in PRODUCTION_READINESS.md.
@@ -46,6 +53,13 @@ that expanded integration-test graph has its own evidence under
 `integration/officialtxpool/`. Regenerate and verify the inventory from the
 intended clean source revision when making a release; running `make dependencies`
 in another checkout describes that checkout's selected module graph instead.
+It atomically updates the regular `docs/DEPENDENCIES.json` file only after
+collection and staging succeed. A failed collection or write preserves the
+previous inventory. A local replacement must be expressed as a portable
+`./path` without parent traversal, so an absolute workstation path or
+an out-of-tree relative path is not written into the inventory. This checks
+the reported path spelling, not filesystem or build provenance. For stdout without updating that file, run
+`python3 scripts/dependencies.py` directly.
 
 For this 2026-11-10 refresh, the CycloneDX document contains the application plus
 83 components: 81 external Go modules, the project-owned STUN adapter and the Go

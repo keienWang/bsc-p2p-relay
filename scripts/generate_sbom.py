@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import urllib.parse
 
+from local_json import destination_path, existing_output_mode, publish_json
+
 REPOSITORY = "https://github.com/keienWang/bsc-p2p-relay"
 GENERATOR = "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0"
 MODULE = "github.com/keienWang/bsc-p2p-relay"
@@ -145,7 +147,8 @@ def main():
     parser.add_argument("--output", default="docs/SBOM.cdx.json")
     args = parser.parse_args()
     source = pathlib.Path(args.source).resolve()
-    output = pathlib.Path(args.output).resolve()
+    output = destination_path(args.output)
+    existing_output_mode(output, "SBOM")
     env = build_environment(os.environ)
     verify_origin(subprocess.check_output(["git", "-C", str(source), "remote", "get-url", "origin"], text=True).strip())
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "--verify", args.commit + "^{commit}"], text=True).strip()
@@ -172,8 +175,7 @@ def main():
             raise ValueError("generator changed the selected source tree")
         bom = normalize(json.loads(raw.read_text()), commit)
         validate_output(bom)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(bom, indent=2) + "\n")
+    publish_json(output, bom, label="SBOM", prefix=".relay-sbom-")
     print(f"Generated CycloneDX {bom['specVersion']} for source {commit}: {output}")
 
 

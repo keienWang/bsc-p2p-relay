@@ -3,6 +3,36 @@
 Results are specific to the source and scope stated in each record. Historical
 failures or passes below are not claims about an untested later commit.
 
+## Repeated static-peer redial over loopback
+
+The hosted default job runs this tagged race test as a separate step. To
+exercise the same gate with a qualified local Linux/amd64 toolchain and cached
+dependencies, run it separately from the default suite:
+
+```sh
+python3 scripts/linux_build.py loopback-test
+```
+
+It verifies two transient disconnects and fresh sessions for the same static
+peer over actual TCP/RLPx, with a synthetic genesis and IPv4 loopback-only
+network restrictions. A real loopback HTTP listener verifies `/readyz` switches
+from 200 to 503 and back during each cycle, while `/v1/stats` keeps the same
+instance and creation time with no submissions. Allow about 70 seconds for the
+pinned BSC dial-history cooldown (35 seconds per cycle); the test does not
+override it. This exercises
+connection recovery without sending transactions and does not establish
+public-peer stability, official-pool acceptance, or WAN reconnection latency.
+
+The same tagged gate also verifies mixed receive capability: one opted-out
+loopback peer stays connected while the only receive-capable peer leaves and a
+fresh receiver joins. The actual HTTP endpoints report connected/ready counts
+of 2/1, 1/0 and 2/1, with readiness statuses 200, 503 and 200 respectively.
+The statistics instance stays stable with no application traffic or submissions.
+
+The gate requires named passes for repeated redial, mixed receive capability,
+and closing an active local transport. Go's overall PASS alone is insufficient:
+the gate fails if any of these cases is absent or skipped.
+
 ## Node lifecycle hardening, 2026-11-11
 
 The [lifecycle verification record](NODE_LIFECYCLE.md#independent-review-and-aggregate-local-verification)

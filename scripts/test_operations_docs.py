@@ -20,6 +20,19 @@ class OperationsDocsTest(unittest.TestCase):
     def test_current_source_contract(self):
         self.assertEqual(check_contracts(*self.contract), [])
 
+    def test_shared_docs_target_checks_both_contracts_before_ci_module_download(self):
+        make = (ROOT / "Makefile").read_text()
+        recipe = make.split("\ncheck-docs:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(recipe.splitlines(), [
+            "\tpython3 scripts/check_operations_docs.py",
+            "\tpython3 scripts/check_stats_docs.py",
+        ])
+        self.assertIn("check-docs", next(line for line in make.splitlines()
+                                         if line.startswith("check:")).split()[1:])
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        default = workflow.split("  official_txpool:", 1)[0]
+        self.assertLess(default.index("run: make check-docs"), default.index("run: go mod download"))
+
     def test_wrong_flag_and_missing_health_field_fail(self):
         changed = self.contract.copy()
         changed[0] = changed[0].replace("| `--cache-ttl` |", "| `--cache-life` |")
@@ -207,6 +220,42 @@ class OperationsDocsTest(unittest.TestCase):
             self.assertEqual(check_links(root, "index.md"), [])
             page.write_text("[file](missing.md) [anchor](target.md#missing) [escape](../outside.md)")
             self.assertEqual(len(check_links(root, "index.md")), 3)
+
+    def test_fenced_examples_do_not_supply_or_consume_links(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = pathlib.Path(work)
+            (root / "target.md").write_text(
+                "# Repeat\n"
+                "  ````markdown\n"
+                "# Repeat\n"
+                "```\n"  # Short closing fence leaves the example open.
+                "# Example only\n"
+                "~~~~~~\n"  # A different fence marker is still code.
+                "````` \n"
+                "  ## Repeat\n"
+            )
+            (root / "index.md").write_text(
+                "[real](target.md#repeat-1)\n"
+                "~~~markdown\n"
+                "[not a real link](not-found.md)\n"
+                "~~~ trailing text\n"
+                "[still a literal link](still-not-found.md)\n"
+                "~~~\n"
+                "[dangling](target.md#example-only)\n"
+                "[multiline\n"
+                "label](also-missing.md)\n"
+                "[does not join across\n"
+                "~~~\n"
+                "literal example\n"
+                "~~~\n"
+                "a fence](cross-fence.md)\n"
+                "```\n"
+                "[ignored in a fence ending at EOF](ignored.md)\n"
+            )
+            self.assertEqual(heading_anchors((root / "target.md").read_text()), {"repeat", "repeat-1"})
+            self.assertEqual(check_links(root, "index.md"),
+                             ["index.md: missing heading link target.md#example-only",
+                              "index.md: invalid local file link also-missing.md"])
 
     def test_duplicate_heading_suffix(self):
         self.assertEqual(heading_anchors("# Repeat\n## Repeat\n"), {"repeat", "repeat-1"})

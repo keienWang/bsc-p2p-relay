@@ -30,9 +30,21 @@ OFFICIAL_PASS = ('=== RUN   TestOther\n--- PASS: TestOther (0.01s)\n'
                  '=== RUN   TestOfficialBSCTxPoolLoopback\n--- PASS: TestOfficialBSCTxPoolLoopback (35.12s)\n'
                  '=== RUN   TestSoakMsgPipe\n--- SKIP: TestSoakMsgPipe (0.00s)\nPASS\n')
 
+LOOPBACK_NAMES = ('repeated_redial', 'opt_out_stays_connected', 'close_isolates_live_transport')
+
+
+def loopback_output():
+    name = build.LOOPBACK_TEST
+    tests = [f'{name}/{case}' for case in LOOPBACK_NAMES]
+    return ''.join(f'=== RUN   {test}\n' for test in [name, *tests]) + (
+        f'--- PASS: {name} (70.02s)\n'
+        + ''.join(f'    --- PASS: {test} (0.02s)\n' for test in tests)
+        + 'PASS\nok  \tgithub.com/keienWang/bsc-p2p-relay/internal/relay\t71.026s\n'
+    )
+
 
 class FakeRunner(build.BuildRunner):
-    def __init__(self, root, env=None, *, failure='', stack=6, mutate=False, event=OFFICIAL_PASS):
+    def __init__(self, root, env=None, *, failure='', stack=6, mutate=False, event=OFFICIAL_PASS, head_after=None):
         super().__init__(root)
         self.environment = env or environment()
         self.calls = []
@@ -41,6 +53,7 @@ class FakeRunner(build.BuildRunner):
         self.archive.parent.mkdir(parents=True, exist_ok=True)
         self.archive.write_bytes(b'fake native archive')
         self.failure, self.stack, self.mutate, self.event = failure, stack, mutate, event
+        self.head_after = head_after if head_after is not None else '1' * 40
 
     def run(self, label, argv, seconds=15):
         argv = [str(arg) for arg in argv]
@@ -54,6 +67,7 @@ class FakeRunner(build.BuildRunner):
         if label == 'cc-selected-linker': return 'ld\n'
         if label == 'herumi-module': return json.dumps({'Path': build.HERUMI, 'Version': 'v1.31.0', 'Sum': build.HERUMI_SUM, 'Dir': str(self.root / 'module')})
         if label == 'source-commit': return '1' * 40 + '\n'
+        if label == 'source-commit-before-install': return self.head_after + '\n'
         if label == 'source-tree': return '2' * 40 + '\n'
         if label == 'source-status': return ''
         if label in ('qualified-relay-build', 'official-package-build'):
@@ -66,7 +80,7 @@ class FakeRunner(build.BuildRunner):
             return result
         if label == 'artifact-dynamic' and self.mutate:
             binary = pathlib.Path(argv[-1]); binary.write_bytes(binary.read_bytes()[:-1] + b'X')
-        if label == 'official-package-all-tests': return self.event
+        if label in ('official-package-all-tests', 'static-peer-loopback-test'): return self.event
         return 'mock metadata\n'
 
 
@@ -188,6 +202,29 @@ class LinuxBuildTest(unittest.TestCase):
             self.exercise()
         self.assertEqual(self.old.read_bytes(), b'previous good binary')
 
+    def test_build_resolves_tree_from_start_commit_and_rechecks_head_before_install(self):
+        runner, output = self.exercise('build-linux-amd64')
+        calls = {label: argv for label, argv, _ in runner.calls}
+        self.assertEqual(calls['source-tree'], ['git', 'rev-parse', '--verify', '1' * 40 + '^{tree}'])
+        self.assertEqual(calls['source-commit-before-install'], ['git', 'rev-parse', '--verify', 'HEAD'])
+        labels = list(calls)
+        self.assertLess(labels.index('artifact-dynamic'), labels.index('source-commit-before-install'))
+        self.assertIn('installed=', output)
+
+    def test_head_switch_during_build_leaves_prior_artifact_and_no_success(self):
+        for initial_after, reason in (
+            ('a' * 40, 'source HEAD changed during build'),
+            ('invalid', 'invalid source commit'),
+        ):
+            with self.subTest(initial_after=initial_after):
+                runner = FakeRunner(self.root, head_after=initial_after)
+                with mock.patch.object(build, 'tool_version'), contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(ValueError, reason):
+                        build.dispatch(runner, 'build-linux-amd64', 'bsc-relay')
+                self.assertNotIn('installed=', output.getvalue())
+                self.assertEqual(self.old.read_bytes(), b'previous good binary')
+                self.assertFalse(list(self.root.glob('.relay-build-*')))
+
     def test_failed_atomic_replace_preserves_old_artifact(self):
         with mock.patch.object(build.os, 'replace', side_effect=OSError('mock rename failure')), self.assertRaises(OSError):
             self.exercise()
@@ -201,6 +238,33 @@ class LinuxBuildTest(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b'not touched')
         (self.root / 'bin').symlink_to(self.root, target_is_directory=True)
         with self.assertRaises(ValueError): build.build(FakeRunner(self.root), 'bin/bsc-relay', {}, None)
+
+    def test_output_parent_replacement_aborts_even_when_both_targets_are_absent(self):
+        original = self.root / 'bin'
+        original.mkdir()
+        moved = self.root / 'previous-bin'
+        runner = FakeRunner(self.root)
+        source_commit = build.source_commit
+
+        def switch_parent(runner, label):
+            value = source_commit(runner, label)
+            if label == 'source-commit-before-install':
+                original.rename(moved)
+                original.mkdir()
+            return value
+
+        with (mock.patch.object(build, 'tool_version'),
+              mock.patch.object(build, 'source_commit', side_effect=switch_parent),
+              mock.patch.object(build.os, 'replace') as replace,
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            with self.assertRaisesRegex(ValueError, 'output parent changed during build'):
+                build.dispatch(runner, 'build-linux-amd64', 'bin/bsc-relay')
+
+        replace.assert_not_called()
+        self.assertNotIn('installed=', output.getvalue())
+        self.assertFalse((original / 'bsc-relay').exists())
+        self.assertFalse((moved / 'bsc-relay').exists())
+        self.assertEqual(list(original.iterdir()), [])
 
     def test_concurrently_changed_destination_is_not_overwritten(self):
         original = build.metadata
@@ -228,6 +292,42 @@ class LinuxBuildTest(unittest.TestCase):
         self.assertEqual(argv, ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + build.LINK_POLICY, '-count=1', '-timeout=180s', './...'])
         self.assertNotIn('ldflags', runner.env['GOFLAGS'])
         self.assertIn('default_race_result=', output)
+
+    def test_loopback_race_runs_the_exact_test_with_offline_qualified_policy(self):
+        name = build.LOOPBACK_TEST
+        event = loopback_output()
+        runner, output = self.exercise('loopback-test', event=event)
+        argv = next(x[1] for x in runner.calls if x[0] == 'static-peer-loopback-test')
+        self.assertEqual(argv, ['go', 'test', '-race', '-mod=readonly', '-ldflags=' + build.LINK_POLICY,
+                                '-tags=loopbackrecovery', '-run', '^' + name + '$',
+                                '-count=1', '-timeout=135s', '-v', './internal/relay'])
+        self.assertEqual(runner.env['GOPROXY'], 'off')
+        self.assertIn('loopback_test_result=', output)
+        for invalid in ('testing: warning: no tests to run\nPASS\n',
+                        event.replace('--- PASS:', '--- SKIP:'), event.rsplit('PASS', 1)[0]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                build.validate_loopback_output(invalid)
+
+    def test_loopback_rejects_missing_skipped_and_duplicate_subtests_despite_parent_pass(self):
+        name = build.LOOPBACK_TEST
+        event = loopback_output()
+        for case in LOOPBACK_NAMES:
+            full = f'{name}/{case}'
+            run = f'=== RUN   {full}\n'
+            passed = f'    --- PASS: {full} (0.02s)\n'
+            for problem, invalid in (
+                ('missing', event.replace(run, '').replace(passed, '')),
+                ('skipped', event.replace(passed, passed.replace('PASS', 'SKIP'))),
+                ('duplicate', event.replace(passed, passed + passed)),
+                ('pass-without-start', event.replace(run, '')),
+                ('pass-and-skip', event.replace(passed, passed + passed.replace('PASS', 'SKIP'))),
+            ):
+                with self.subTest(case=case, problem=problem):
+                    runner = FakeRunner(self.root, event=invalid)
+                    with mock.patch.object(build, 'tool_version'), contextlib.redirect_stdout(io.StringIO()) as output:
+                        with self.assertRaisesRegex(ValueError, case):
+                            build.dispatch(runner, 'loopback-test', 'bsc-relay')
+                    self.assertNotIn('loopback_test_result=', output.getvalue())
 
     def test_official_runs_whole_alternate_graph_binary_after_elf_check(self):
         env = environment(); env['GOFLAGS'] = '-buildvcs=false -mod=readonly -modfile=' + build.MODFILE + ' -tags=officialtxpool'

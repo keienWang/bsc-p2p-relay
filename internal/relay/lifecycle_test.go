@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -68,6 +70,174 @@ func TestNodeCloseAfterStartIsTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	address := n.server.ListenAddr
+	n.Close()
+	assertNodeClosed(t, n)
+	assertListenerReleased(t, address)
+}
+
+func TestNodeCloseReleasesLocalTransactionCache(t *testing.T) {
+	for _, mode := range []string{"before_start", "after_start"} {
+		t.Run(mode, func(t *testing.T) {
+			n := protocolNode(t)
+			t.Cleanup(n.Close)
+			if mode == "after_start" {
+				n.server.NoDial = true
+				if err := n.Start(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Submit only to an in-process synthetic queue with no writer.
+			n.mu.Lock()
+			p := addFakePeer(n, true, 1)
+			n.mu.Unlock()
+			tx := fixtureTx(t, 56, 1, false)
+			raw := rawFixture(t, tx)
+			result, err := n.Submit(raw)
+			if err != nil || result.QueuedPeers != 1 {
+				t.Fatalf("local fixture admission = %+v, %v", result, err)
+			}
+			<-p.queue
+			before := n.Health()
+			if before.CachedTransactions != 1 || before.CachedBytes != int(tx.Size()) {
+				t.Fatalf("fixture cache = %+v", before)
+			}
+			identity := n.Stats().InstanceID
+
+			n.Close()
+			n.Close()
+			after := n.Health()
+			if after.CachedTransactions != 0 || after.CachedBytes != 0 {
+				t.Fatalf("terminal Node still reports cached contents: %+v", after)
+			}
+			n.cache.mu.Lock()
+			retainedBacking := n.cache.entries != nil || n.cache.expiries != nil || !n.cache.expiryUpperBound.IsZero()
+			n.cache.mu.Unlock()
+			if retainedBacking {
+				t.Fatal("terminal cache kept the map, heap backing or expiry bound")
+			}
+			stats := n.Stats()
+			if stats.InstanceID != identity || stats.Submit.AcceptedNewCacheLifetimeTotal != 1 {
+				t.Fatalf("closing cleared observation history: %+v", stats)
+			}
+			if _, err := n.Submit(raw); !errors.Is(err, ErrNodeClosed) {
+				t.Fatalf("Submit after terminal cache release = %v, want ErrNodeClosed", err)
+			}
+			if len(p.queue) != 0 || n.Health().CachedTransactions != 0 {
+				t.Fatal("submission after Close re-populated local state")
+			}
+		})
+	}
+}
+
+func TestDelayedMaintenanceWakeUsesCurrentTime(t *testing.T) {
+	n := bareNode(t)
+	n.cache = newStore(4, MaxRawTransaction*4, 4*time.Hour)
+	now := time.Now()
+	expired, live := fixtureTx(t, 56, 1, false), fixtureTx(t, 56, 2, false)
+	for _, fixture := range []struct {
+		tx  *types.Transaction
+		age time.Duration
+	}{
+		{expired, 5 * time.Hour}, // deadline one hour before handling the wake
+		{live, 3 * time.Hour},    // deadline one hour after handling it
+	} {
+		if fresh, err := n.cache.add(fixture.tx, now.Add(-fixture.age)); err != nil || !fresh {
+			t.Fatalf("fixture cache insertion = %v, %v", fresh, err)
+		}
+	}
+	p := &peerSession{}
+	p.recordSent(expired.Hash(), now.Add(-time.Hour))
+	p.recordSent(live.Hash(), now.Add(time.Hour))
+	n.mu.Lock()
+	n.setPeerLocked(enode.ID{1}, p)
+	n.mu.Unlock()
+
+	ticks := make(chan time.Time)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		n.maintenanceLoop(ticks)
+	}()
+	select {
+	case ticks <- now.Add(-2 * time.Hour): // an old tick predating even the expired deadline
+	case <-time.After(5 * time.Second):
+		close(n.stop)
+		t.Fatal("maintenance worker did not receive its wake")
+	}
+	close(n.stop)
+	select {
+	case <-done: // The only selected wake has finished pruning.
+	case <-time.After(5 * time.Second):
+		t.Fatal("maintenance did not stop")
+	}
+
+	// Observe physical storage; Health would independently prune the cache.
+	n.cache.mu.Lock()
+	expiredEntry, liveEntry := n.cache.entries[expired.Hash()], n.cache.entries[live.Hash()]
+	n.cache.mu.Unlock()
+	if expiredEntry != nil || liveEntry == nil {
+		t.Errorf("cache expired present=%v live present=%v, want false/true", expiredEntry != nil, liveEntry != nil)
+	}
+	n.submitMu.Lock()
+	_, expiredSent := p.sent[expired.Hash()]
+	_, liveSent := p.sent[live.Hash()]
+	n.submitMu.Unlock()
+	if expiredSent || !liveSent {
+		t.Errorf("sent expired present=%v live present=%v, want false/true", expiredSent, liveSent)
+	}
+}
+
+func TestNodeIdleMaintenanceRunsAcrossSuccessiveTicks(t *testing.T) {
+	n := protocolNode(t)
+	t.Cleanup(n.Close)
+	n.server.NoDial = true // There are no peers to dial; also enforce it in the fixture.
+	p := &peerSession{}
+	first, second, live := common.Hash{1}, common.Hash{2}, common.Hash{3}
+	due, future := time.Now().Add(-time.Second), time.Now().Add(time.Hour)
+	p.recordSent(first, due)
+	p.recordSent(second, future)
+	p.recordSent(live, future)
+	// Inject bookkeeping only, never a connection, transport, or transaction.
+	n.setPeerLocked(enode.ID{1}, p)
+	if err := n.Start(); err != nil {
+		t.Fatal(err)
+	}
+	address := n.server.ListenAddr
+
+	awaitPrune := func(expired, retained common.Hash, wantCount int) {
+		t.Helper()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		poll := time.NewTicker(20 * time.Millisecond)
+		defer poll.Stop()
+		for {
+			// Do not call Health or prune: only the periodic worker may clean up.
+			n.submitMu.Lock()
+			_, present := p.sent[expired]
+			kept := p.sent[retained]
+			count := len(p.sent)
+			n.submitMu.Unlock()
+			if !present {
+				if !kept.Equal(future) || count != wantCount {
+					t.Fatalf("idle pass retained %d records (want %d) and live deadline %v (want %v)",
+						count, wantCount, kept, future)
+				}
+				return
+			}
+			select {
+			case <-poll.C:
+			case <-timer.C:
+				t.Fatalf("idle worker did not reclaim hash %x", expired[0])
+			}
+		}
+	}
+	awaitPrune(first, second, 2)
+	// Make a second deadline due only after observing the first cleanup. A
+	// startup-only or one-shot maintenance call cannot pass the second phase.
+	n.submitMu.Lock()
+	p.recordSent(second, due)
+	n.submitMu.Unlock()
+	awaitPrune(second, live, 1)
 	n.Close()
 	assertNodeClosed(t, n)
 	assertListenerReleased(t, address)

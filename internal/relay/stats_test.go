@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -278,7 +279,7 @@ func TestStatsSubmitOutcomePaths(t *testing.T) {
 		{"sent_limit", func(n *Node) {
 			p := addFakePeer(n, true, 1)
 			n.cfg.CacheCount = 1
-			p.sent = map[common.Hash]time.Time{{1}: time.Now().Add(time.Hour)}
+			p.recordSent(common.Hash{1}, time.Now().Add(time.Hour))
 		}, raw, submitRejectedQueueUnavailable, ErrQueuesFull},
 		{"byte_limit", func(n *Node) { addFakePeer(n, true, 1); n.cache = newStore(2, 1, time.Minute) }, raw, submitRejectedCacheFull, ErrCacheFull},
 		{"count_limit", func(n *Node) { addFakePeer(n, true, 1); n.cache = newStore(0, MaxRawTransaction, time.Minute) }, raw, submitRejectedCacheFull, ErrCacheFull},
@@ -308,7 +309,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	tx := fixtureTx(t, 56, 0, false)
 	raw := rawFixture(t, tx)
 	p := addFakePeer(n, true, 1)
-	n.peers[enode.ID{2}] = &peerSession{receiveTx: true, queue: make(chan outbound), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, &peerSession{receiveTx: true, queue: make(chan outbound), done: make(chan struct{})})
 	got, err := n.Submit(raw)
 	if err != nil || got.Duplicate || got.QueuedPeers != 1 {
 		t.Fatal(got, err)
@@ -320,7 +321,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	if n.cache.expiry(tx.Hash()) != deadline {
 		t.Fatal("cached rejection changed retention")
 	}
-	n.peers[enode.ID{2}] = &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})})
 	got, err = n.Submit(raw)
 	if err != nil || !got.Duplicate || got.QueuedPeers != 1 {
 		t.Fatal(got, err)
@@ -337,7 +338,7 @@ func TestStatsPartialFanoutRollbackRetryAndTTL(t *testing.T) {
 	expired := time.Now().Add(-time.Second)
 	setCacheExpiryForTest(t, n.cache, expired, tx.Hash())
 	for _, peer := range n.peers {
-		peer.sent[tx.Hash()] = expired
+		peer.recordSent(tx.Hash(), expired)
 		<-peer.queue
 	}
 	got, err = n.Submit(raw)
@@ -392,6 +393,89 @@ func TestStatsNoCompletionOnPanicOrBlockedCall(t *testing.T) {
 		t.Fatal("Submit did not finish")
 	}
 	assertStatsOutcomes(t, n, map[submitOutcome]uint64{submitRejectedNoPeers: 1})
+}
+
+func TestSubmitCapabilityGatePreservesValidationAndCacheOrder(t *testing.T) {
+	n := bareNode(t)
+	n.cache = newStore(1, MaxRawTransaction, time.Minute)
+	existing := fixtureTx(t, 56, 0, false)
+	if fresh, err := n.cache.add(existing, time.Now()); err != nil || !fresh {
+		t.Fatalf("fill local cache fixture: %v %v", fresh, err)
+	}
+	tx := fixtureTx(t, 56, 1, false)
+	raw := rawFixture(t, tx)
+	// These are synthetic handshaken-session states, with no writer or socket.
+	optedOut := addFakePeer(n, false, 1)
+	second := &peerSession{queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(enode.ID{2}, second)
+	if got, err := n.Submit(nil); err == nil || errors.Is(err, ErrNoPeers) || got != (Submission{}) {
+		t.Fatalf("validation must happen before peer availability: %+v %v", got, err)
+	}
+	expectNoPeers := func() {
+		t.Helper()
+		got, err := n.Submit(raw)
+		if !errors.Is(err, ErrNoPeers) || got.Hash != tx.Hash() || got.Stage != "queued" || got.Duplicate || got.QueuedPeers != 0 {
+			t.Fatalf("no receive-capable session: %+v %v", got, err)
+		}
+	}
+	expectNoPeers() // The full cache must not classify this as a capacity rejection.
+
+	id := enode.ID{3}
+	ready := &peerSession{receiveTx: true, queue: make(chan outbound, 1), done: make(chan struct{})}
+	n.setPeerLocked(id, ready)
+	if got, err := n.Submit(raw); !errors.Is(err, ErrCacheFull) || got.Hash != tx.Hash() || got.QueuedPeers != 0 {
+		t.Fatalf("mixed peers must proceed to cache admission: %+v %v", got, err)
+	}
+	n.cache.remove(existing.Hash())
+	if got, err := n.Submit(raw); err != nil || got.Hash != tx.Hash() || got.Duplicate || got.QueuedPeers != 1 {
+		t.Fatalf("mixed peers must enqueue only to the receiver: %+v %v", got, err)
+	}
+	n.removePeerLocked(id, ready)
+	expectNoPeers() // A cached hash still needs a receive-capable session.
+	if len(ready.queue) != 1 || len(optedOut.queue) != 0 || len(second.queue) != 0 {
+		t.Fatal("availability gate changed the queues")
+	}
+	assertStatsOutcomes(t, n, map[submitOutcome]uint64{
+		submitRejectedValidation: 1, submitRejectedNoPeers: 2,
+		submitRejectedCacheFull: 1, submitAcceptedNew: 1,
+	})
+}
+
+func TestStoppedNodeRejectsNewAdmissionBeforeCacheOrQueue(t *testing.T) {
+	for _, throughHTTP := range []bool{false, true} {
+		t.Run(strconv.FormatBool(throughHTTP), func(t *testing.T) {
+			n := bareNode(t)
+			p := addFakePeer(n, true, 1)
+			// Reproduce the ordinary ordering of Close: the stop signal is
+			// closed before the transport finishes removing registered peers.
+			// This is only local in-memory state with no writer or listener.
+			close(n.stop)
+			tx := fixtureTx(t, 56, 0, false)
+			raw := rawFixture(t, tx)
+			if got, err := n.Submit(nil); err == nil || errors.Is(err, ErrNodeClosed) || got != (Submission{}) {
+				t.Errorf("validation must still precede shutdown check: %+v %v", got, err)
+			}
+			if throughHTTP {
+				body := fmt.Sprintf(`{"raw_tx":"0x%x"}`, raw)
+				w := statsRequest(n.Handler(), http.MethodPost, "/v1/transactions", body)
+				var result map[string]string
+				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusServiceUnavailable ||
+					len(result) != 1 || result["error"] != ErrNodeClosed.Error() {
+					t.Errorf("stopped HTTP admission status/body: %d %s (%v)", w.Code, w.Body.String(), err)
+				}
+			} else {
+				got, err := n.Submit(raw)
+				if !errors.Is(err, ErrNodeClosed) || got.Hash != tx.Hash() || got.QueuedPeers != 0 {
+					t.Errorf("direct stopped admission: %+v %v", got, err)
+				}
+			}
+			if count, size := n.cache.stats(); count != 0 || size != 0 || len(p.queue) != 0 || len(p.sent) != 0 {
+				t.Errorf("shutdown admission mutated cache or queue: count=%d bytes=%d queued=%d sent=%d",
+					count, size, len(p.queue), len(p.sent))
+			}
+			assertStatsOutcomes(t, n, map[submitOutcome]uint64{submitRejectedValidation: 1, submitOther: 1})
+		})
+	}
 }
 
 func TestStatsSnapshotNeedsNoStateLocks(t *testing.T) {

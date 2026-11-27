@@ -71,7 +71,10 @@ The positional-error message deliberately does not print supplied arguments.
 | `--network` | `mainnet` | Exactly `mainnet` (chain ID 56) or `testnet` (97). |
 | `--p2p` | `:30311` | P2P listen address; use `127.0.0.1:0` for an isolated, ephemeral TCP port. Binding errors fail startup. |
 | `--api` | `127.0.0.1:8787` | Literal loopback IP and port only, for example `127.0.0.1:8787` or `[::1]:8787`. `localhost:8787`, `:8787` and `0.0.0.0:8787` are rejected. |
+| `--http-drain-timeout` | `5s` | Graceful HTTP shutdown window, from `1ms` through `30s`. Does not bound P2P teardown. |
 | `--no-discovery` | `false` | Disables discovery, not static peer dialing or the P2P listener. |
+| `--observe-only` | `false` | Keeps health, readiness and stats; disables HTTP transaction submission without changing P2P. |
+| `--check-config` | `false` | Check CLI and Node configuration offline; do not start listeners or connect to peers. Requires a numeric API port. |
 | `--max-peers` | `20` | Integer from 1 through 200. This is not a required-ready-peer count. |
 | `--cache-count` | `1024` | Integer at least 1. No additional application maximum is validated. |
 | `--cache-bytes` | `16777216` | Integer at least 131072. Counts serialized transaction bytes, not process RSS. |
@@ -86,6 +89,24 @@ capacity fix until the resource and retention budget has been reviewed. There
 are no flags for an RPC URL, wallet key, datadir, persistent node key, queue size,
 metrics exporter, authentication or log level.
 
+## Check configuration without starting
+
+```sh
+./bin/bsc-relay --check-config --network mainnet --api 127.0.0.1:8787
+```
+
+Use this on a candidate launch command before stopping a running relay. A
+successful check exits zero and prints one line. It checks CLI arguments, the
+literal loopback API IP and numeric port (including `:0`), the shape of a
+nonempty P2P listen address and any numeric P2P port's range, network, peer/cache
+limits, and static peer syntax. The checks are shared with startup, but do not
+allocate the runtime node, build its in-memory genesis, or generate instance
+IDs or a P2P key. An empty P2P listen address remains allowed. The check does
+not resolve host or
+service names, bind either listener, or start discovery or dialing. It cannot
+establish port availability, peer reachability, readiness or delivery.
+Remove `--check-config` to start normally.
+
 ## Local start, inspection and stop
 
 From the repository root, with an already built, reviewed binary at
@@ -93,28 +114,44 @@ From the repository root, with an already built, reviewed binary at
 
 ```sh
 ./bin/bsc-relay --network mainnet --no-discovery \
-  --p2p 127.0.0.1:0 --api 127.0.0.1:8787
+  --observe-only --p2p 127.0.0.1:0 --api 127.0.0.1:8787
 ```
 
 This selects mainnet encoding/genesis locally but supplies no peers and does not
 enable discovery. It is not a mainnet broadcast exercise. The binary prints a
-startup message with network, API address and ephemeral enode. An API bind can
-still fail after that message, so verify process survival and the endpoints.
+startup message only after the HTTP listener binds successfully, with network,
+actual bound API address (including the selected port for `--api 127.0.0.1:0`),
+and ephemeral enode. A bind failure returns an error without that message and
+closes the already-started P2P server. The message is not a readiness guarantee:
+verify process survival and the endpoints; peers may still be absent.
 
 In another terminal, bypass any configured HTTP proxy and do not follow redirects:
 
 ```sh
 curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/healthz
 curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/readyz
+curl --noproxy '*' --connect-timeout 2 --max-time 5 -i http://127.0.0.1:8787/v1/stats
 ```
 
 Expected in this isolated mode: `/healthz` is 200, `ready_peers` and
 `connected_peers` are 0, `confirmation_tracking` is false, and `/readyz` is 503.
 That 503 is expected, not a reason to enable public discovery during a smoke test.
-For an automatic local start/check/stop, the existing
-[smoke script](../scripts/smoke.py) chooses a temporary loopback API port, disables
-discovery, supplies no peer, sends only malformed transaction bytes and checks
-shutdown plus the absence of data files:
+`/v1/stats` is 200; record its `instance_id` alongside samples. A changed ID
+means the counters belong to a different Node, not that the old Node recovered.
+
+`--observe-only` disables the HTTP submission route before body parsing, without
+incrementing Submit or admission-concurrency counters. It does not disable the
+P2P listener, static-peer dialing or discovery by itself; keep the isolation
+flags above. No transaction or signing fixture is needed for this manual check.
+
+For an automatic local start/check/stop, the
+[smoke script](../scripts/smoke.py) tests ordinary and observation-only modes on
+temporary IPv4 loopback ports with discovery disabled and no supplied peer. It
+also checks observation mode on `[::1]` when IPv6 loopback is available. The
+relay binds port `0` and reports its kernel-selected API address; the script
+checks that address instead of releasing and rebinding a preselected port. It
+uses only malformed submission probes and checks shutdown and the absence of
+data files:
 
 ```sh
 python3 scripts/smoke.py ./bin/bsc-relay
@@ -125,22 +162,42 @@ cases against the same binary. These cases put an invalid API address before
 any leftover argument, so even the older CLI without this check exits before
 creating a Node. The command-package Go tests retain this guard and separately
 check that flag-only arguments, including a bare final `--`, reach the normal
-address-validation path. These are argument-parsing tests, not delivery tests.
+address-validation path. These are argument-parsing tests, not delivery tests. The smoke also holds an
+ephemeral loopback TCP port open while starting the binary, first as the API
+port and then as the P2P port. Both attempts must exit with their own bind
+diagnostic and must not announce startup. No client requests are sent to the held
+ports.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
-to the verified relay PID. The CLI gives HTTP shutdown a five-second context and
-then closes the P2P server. This is **not a delivery drain**: queued transactions
-can be abandoned. Wait for process exit and record its status. Do not use a
-forced kill as an ordinary shutdown or treat a clean exit as a delivery receipt.
+to the verified relay PID. HTTP requests get up to the configured drain timeout
+to finish (five seconds by default). Set `--http-drain-timeout` to leave room
+for P2P cleanup inside a supervisor's stop grace period; it does not bound total
+process exit time. If the drain fails, the CLI closes the remaining HTTP
+connections, closes the P2P server, and returns an error. This is **not a delivery drain**:
+queued transactions can be abandoned. The writer does not start work on a
+dequeued message if its stop signal is already visible at the pre-write check.
+This does not cancel a write already past that check. Wait for process exit and
+record its status. Do not use a forced kill as an ordinary shutdown or treat a
+clean exit as a delivery receipt.
 Any uncompleted or unanswered client request has an uncertain outcome.
+
+A terminal listener error after startup is reported as `serve HTTP API:`.
+Unlike signal-driven shutdown, this failure closes existing HTTP connections
+immediately before the P2P server is stopped; it does not attempt an HTTP drain.
 
 ### Node lifecycle callers
 
 Repository code embedding `internal/relay.Node` must create a fresh Node after
 Close or a failed Start. Calling Start on the old instance returns
-`node is closed; create a new node to restart` (`ErrNodeClosed`). This is a
-lifecycle-method error, **not a Submit error or an HTTP rejection response**.
-The CLI has no in-process restart path. See the [single-use lifecycle contract,
+`node is closed; create a new node to restart` (`ErrNodeClosed`). Direct
+`Submit` also returns this error if shutdown is already visible at the
+admission check, even if a peer remains registered during teardown. Validation
+still runs first, and work already past the admission check is not canceled
+by it. The CLI normally drains HTTP before calling Node.Close; a caller that
+retains an embedded transaction handler across Close can receive HTTP 503.
+After Close returns, a fresh health observation reports an empty transaction
+cache; instance statistics are still readable. This is memory cleanup, not
+delivery or persistence. The CLI has no in-process restart path. See the [single-use lifecycle contract,
 cleanup review and test limits](NODE_LIFECYCLE.md).
 
 ## HTTP contract and client decisions
@@ -194,12 +251,14 @@ broken connection need not produce this application JSON schema.
 | 400 | `invalid JSON request`; `exactly one JSON object is required`; `raw_tx must be 0x-prefixed hex`; `invalid transaction hex` | Fix the request. Do not repeatedly retry identical malformed input. |
 | 400 | Validation rejection, including `raw transaction size must be 1..131072 bytes`, unsupported type, wrong chain/replay protection, gas/value/fee constraints, noncanonical encoding, or `decode signed transaction: ...` / `invalid signature: ...` | Inspect the error and signing/request construction outside this relay. Do not change transaction financial terms automatically. |
 | 503 | `no compatible transaction-receiving peer is ready` | No new cache insertion occurred in this request. Check peer readiness, then use bounded retries only while the transaction is still authorized for broadcast. |
+| 503 | `node is closed; create a new node to restart` | The handler reached a stopping or closed Node before cache admission. Do not retry this instance. |
 | 429 | `too many concurrent requests` | All eight request slots were occupied; this request did not parse or insert a transaction. Reduce caller concurrency. |
 | 429 | `transaction memory cache is full` | New hash cannot fit count or serialized-byte capacity. Both limits share this error. No new entry was inserted. Inspect occupancy and arrival/retention budgets. |
 | 429 | `all peer queues are full; retry later` | No new queue admission succeeded. A fresh cache insertion is rolled back; a previously cached hash remains. A closing session or bounded peer sent-map can also make admission unavailable: this string is not a queue-depth measurement. |
 | 429 | `transaction expired during admission; retry later` | Its cache deadline passed during admission. Expired state is pruned; do not count it as a successful live admission. |
+| 403 | `transaction submission is disabled in observation mode` | Expected with `--observe-only`; do not submit to this process. |
 | 403 | `invalid local Host header`; `browser-origin requests are not allowed` | Use the direct local endpoint with a loopback/localhost Host and no nonempty Origin. Do not bypass this with a public proxy. |
-| 405 | `GET required`; `POST required` | Use the documented method for the selected path. |
+| 405 | `GET required`; `POST required` | Use the method advertised in the `Allow` response header for the selected path. |
 | 415 | `application/json required` | Set the JSON content type. |
 | 404 | `not found` | Check the path; there is no transaction lookup, RPC, `/metrics` or profiling endpoint. |
 
@@ -255,9 +314,10 @@ between `/readyz` and submit. An already cached transaction can receive 503 or
    diagnostics and authorized peer-side diagnostics; do not claim the aggregate
    counters identify a cause they cannot expose.
 4. Positive `connected_peers` with zero `ready_peers` can mean all sessions opted
-   out of transaction broadcast through UpgradeStatus. A handshake alone is not
-   willingness to receive transactions. Review the permitted peer configuration
-   with its owner, rather than treating the peer as faulty or trustworthy.
+   out of transaction broadcast through UpgradeStatus, or that Node shutdown is
+   in progress and sessions have not yet deregistered. The CLI normally drains
+   HTTP first. Check lifecycle events before examining permitted peer
+   configuration; a handshake alone does not imply readiness.
 5. A rising `write_failures` counter means a writer send failed and that session
    is disconnected. It does not reveal which transaction was accepted elsewhere.
    Stop aggressive retries, inspect caller status/error distributions and resource
@@ -265,6 +325,44 @@ between `/readyz` and submit. An already cached transaction can receive 503 or
 6. If no authorized peer is usable, pause new offers or let the caller's bounded
    retry policy terminate. Report unavailable transport. Do not add external RPC,
    expose HTTP, disable validation or promise delayed automatic delivery.
+
+### Identify an HTTP API port conflict on Linux
+
+If startup reports `bind HTTP API:` followed by `address already in use`,
+take the fixed port from `--api` (default `8787`). A `start P2P node:` error
+instead identifies P2P startup, whose listen address is configured by `--p2p`.
+
+If shutdown is already visible after a successful HTTP bind, the CLI releases
+both listeners without announcing startup. A bind error still reports its
+original startup stage; cancellation after startup uses the normal HTTP drain.
+
+For the HTTP API, run this read-only check in the **same network namespace as
+the failing relay**. Replace `8787` with the configured port:
+
+```sh
+ss -H -ltnp 'sport = :8787'
+```
+
+This selects TCP **listening** sockets by exact local port, not outbound
+connections or ports that merely contain those digits. Read the local address
+column as well: a wildcard listener can matter even when the relay binds to
+`127.0.0.1` or `::1`. If present, `users:(...)` reports process metadata;
+a listener without that field is still a listener, but `ss` could not show its
+owner (for example, due to permissions). Do not assume it belongs to the relay.
+
+No rows means no matching TCP listener was visible in that namespace **at the
+time of the check**. Compare the exact address/port in the startup error, check
+that you are inspecting the correct namespace and host, and account for a
+process that may have exited. For an existing Docker setup, an authorized
+operator can use `docker ps --format 'table {{.Names}}\t{{.Ports}}'` on the
+relevant Docker host to check host port mappings; a published host port is not
+the same as a listener inside a container. This does not recommend publishing
+or exposing the relay HTTP API.
+
+`--api 127.0.0.1:0` requests a kernel-selected port, not a listener on port 0.
+For a successful ephemeral start, inspect the actual API address in the startup
+log; do not query `sport = :0`. These steps are diagnostic only: do not stop,
+restart, or reconfigure an unidentified listener.
 
 ## Observation and capacity
 
@@ -278,7 +376,7 @@ no nonempty Origin. The object has exactly these current fields:
 | --- | --- |
 | `network` | Selected `mainnet` or `testnet`. |
 | `chain_id` | String `"56"` or `"97"`, not a JSON number. |
-| `ready_peers` | Handshaken sessions that advertise receiving transactions. |
+| `ready_peers` | Handshaken sessions that advertise receiving transactions; zero if the snapshot observes Node shutdown. |
 | `connected_peers` | Sessions registered after the dual handshake, including opt-out sessions. |
 | `cached_transactions` | Live cached hash count after a prune at observation time. |
 | `cached_bytes` | Serialized size total for those live entries; not RSS. |
@@ -287,8 +385,12 @@ no nonempty Origin. The object has exactly these current fields:
 | `confirmation_tracking` | Always `false` in this milestone. |
 <!-- operations-health:end -->
 
-Counters reset on restart. Peer and cache samples are not one global atomic
-snapshot; ordinary churn can change them between observations. Collect bounded,
+Counters reset on restart. The two cache fields describe the same live entries:
+zero entries imply zero bytes, and each entry accounts for at least one
+serialized byte. The local readiness probe treats a contradiction as unavailable
+(exit 1) and neither prints JSON nor saves a snapshot. Peer and cache samples
+are not one global atomic snapshot; ordinary churn can change them between
+observations. Collect bounded,
 timestamped samples and caller-side status/error/latency counts, with failures
 and uncertain outcomes retained. Do not infer exact per-transaction history from
 aggregate counter differences.
@@ -375,7 +477,8 @@ interpret zero cache occupancy or an expiry benchmark as zero RSS or leak freedo
 5. Restart discards all cache entries, peer sent metadata, queues, transport
    counters and the ephemeral node identity. There is no chain database to
    migrate/restore, persistent transaction replay log or cache-clear API. The
-   one-second maintenance tick prunes expired cache/sent state while idle;
+   one-second maintenance tick prunes expired cache/sent state while idle,
+   using the clock when a pass starts rather than a delayed scheduled time;
    accesses also enforce expiry. If an immediate local state reset is necessary,
    a deliberate stop/start does it at the cost of abandoning transport state.
 6. Pruning clears references but retains bounded reusable allocation; GC/RSS
@@ -396,14 +499,25 @@ share only necessary, reviewed details through an appropriate channel. Follow
 From the repository root:
 
 ```sh
-python3 scripts/check_operations_docs.py
+make check-docs
 ```
+
+This runs both the operations and [statistics](OBSERVABILITY.md) source and
+link checks. It needs only Make and Python 3, with no relay listener, Go
+toolchain, or network access. The default CI job runs the same target before
+downloading Go modules; `make check` also includes it.
+
+After building the delivery artifact, also run
+`python3 scripts/check_flag_defaults.py ./bsc-relay` to compare the flag
+table with the defaults in the artifact's `--help`. This exits before listener
+startup and does not check runtime configuration or reachability.
 
 This standard-library-only check reads local files. It compares flag names and
 JSON field names with source declarations, checks literal handler/admission error
 strings, and checks relative file/heading links in this runbook plus its
-README/readiness/security entry points. It is a narrow text check, not a Go or
-Markdown parser. Its supported forms are the current direct flag registrations,
+README/readiness/security entry points. Standalone fenced examples are not
+counted as links or headings. This is a narrow text check, not a Go or Markdown
+parser. Its supported forms are the current direct flag registrations,
 explicit JSON tags, direct handler calls and single-variable literal admission
 errors. Regression tests reject known unsupported shapes including aliases,
 receiver registrations, commented selectors, concatenated names, grouped error
@@ -418,3 +532,14 @@ decode/signature errors. It neither starts a node nor
 accesses the network and does not validate runtime behavior, external URLs,
 timing, capacity, CI or production readiness. Use the separate release
 verification gates for those claims.
+
+### Method discovery on rejection
+
+A method-rejection 405 includes `Allow: GET` for observation paths or
+`Allow: POST` for the ordinary transaction path, as required by
+[RFC 9110 section 15.5.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.6).
+This does not enable new methods, OPTIONS, CORS, or submission in observation
+mode. Observation-only transaction requests remain 403 without an Allow
+advertisement; Host/Origin refusals still run before method handling. Error JSON
+and counter semantics are unchanged. An Allow header describes a method, not
+authorization, readiness, successful submission, or a reason to retry blindly.

@@ -1,0 +1,325 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+import argparse
+import concurrent.futures
+import contextlib
+import io
+import json
+import pathlib
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
+
+import capture_stats
+import probe_readiness
+from test_stats_delta import sample
+
+
+class CaptureStatsTests(unittest.TestCase):
+    def test_literal_loopback_only(self):
+        self.assertEqual(capture_stats.loopback_base("127.0.0.1:8787"), "http://127.0.0.1:8787")
+        self.assertEqual(capture_stats.loopback_base("[::1]:8787"), "http://[::1]:8787")
+        self.assertEqual(capture_stats.loopback_base("127.0.0.2:00001"), "http://127.0.0.2:1")
+        self.assertEqual(capture_stats.loopback_base("[0:0:0:0:0:0:0:1]:65535"), "http://[::1]:65535")
+        for address in ("localhost:8787", "example.com:80", "192.0.2.1:80", "0.0.0.0:80", "[::]:80",
+                        "127.0.0.1", "127.0.0.1:0", "127.0.0.1:65536", "user@127.0.0.1:80",
+                        "127.0.0.1:80/", "127.0.0.1:80?q=1", "127.0.0.1:80#x", "[::1%lo]:80",
+                        "https://127.0.0.1:80"):
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                capture_stats.loopback_base(address)
+
+    def test_literal_address_is_not_normalized_as_a_url(self):
+        for address in (
+            "127.0.0.1:8787?", "127.0.0.1:8787#", "127.0.0.1:87\t87",
+            "127.0.0.1:8787\n", "127.0.0.1\r:8787", "[::1]extra:8787",
+            "127.0.0.1:+8787", "127.0.0.1:８７８７", "127.0.0.1:8787 ",
+            "[127.0.0.1]:8787", "::1:8787", "[::1]:+8787", "127.0.0.1:" + "9" * 100,
+        ):
+            with self.subTest(address=address), self.assertRaisesRegex(ValueError, "literal loopback IP and port"):
+                capture_stats.loopback_base(address)
+
+    def test_both_cli_entry_points_reject_nonliteral_addresses_before_http(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for main, options, message in (
+                (capture_stats.main, [str(root / "stats.json")], "statistics capture failed:"),
+                (probe_readiness.main, ["--output", str(root / "ready.json")], "readiness unavailable:"),
+            ):
+                for address in ("127.0.0.1:8787?", "127.0.0.1:87\t87"):
+                    with self.subTest(main=main.__module__, address=address):
+                        out, err = io.StringIO(), io.StringIO()
+                        with (mock.patch("capture_stats.urllib.request.build_opener",
+                                         side_effect=AssertionError("fixture forbids HTTP")) as opener,
+                              contextlib.redirect_stdout(out), contextlib.redirect_stderr(err)):
+                            code = main([address, *options])
+                        opener.assert_not_called()
+                        self.assertEqual((code, out.getvalue()), (1, ""))
+                        self.assertIn(message, err.getvalue())
+                        self.assertIn("literal loopback IP and port", err.getvalue())
+                        self.assertEqual(list(root.iterdir()), [])
+
+    def test_atomic_new_file_and_baseline_preservation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "stats.json"
+            capture_stats.save_new_snapshot(target, sample())
+            original = target.read_bytes()
+            self.assertEqual(json.loads(original), sample())
+            with self.assertRaises(FileExistsError):
+                capture_stats.save_new_snapshot(target, {"different": True})
+            self.assertEqual(target.read_bytes(), original)
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [target])
+
+    def test_competing_publishers_expose_one_complete_winner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            target = root / "stats.json"
+            candidates = [dict(sample(), instance_id=identity * 32) for identity in ("a", "b")]
+            for index, candidate in enumerate(candidates):
+                candidate["http"]["concurrency_rejected_total"] = (1 << 64) - 1 - index
+
+            # Make both writes reach the real atomic publication boundary after
+            # staging; sequential duplicate checks cannot exercise this race.
+            staged = threading.Barrier(3, timeout=5)
+            release = threading.Event()
+            real_link = capture_stats.os.link
+
+            def publish(source, destination):
+                staged.wait()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("publication fixture did not release writers")
+                real_link(source, destination)
+
+            with mock.patch("capture_stats.os.link", side_effect=publish):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
+                    futures = [workers.submit(capture_stats.save_new_snapshot, target, candidate)
+                               for candidate in candidates]
+                    try:
+                        staged.wait()
+                        self.assertFalse(target.exists(), "target appeared before publication")
+                        self.assertCountEqual(
+                            [json.loads(file.read_bytes()) for file in root.iterdir()], candidates)
+                    finally:
+                        release.set()
+                    errors = [future.exception(timeout=5) for future in futures]
+
+            winners = [index for index, error in enumerate(errors) if error is None]
+            self.assertEqual(len(winners), 1, errors)
+            self.assertIsInstance(errors[1 - winners[0]], FileExistsError)
+            self.assertEqual(json.loads(target.read_bytes()), candidates[winners[0]])
+            self.assertEqual(list(root.iterdir()), [target])
+
+    def test_publication_failure_cleans_temporary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch("capture_stats.os.link", side_effect=OSError("fixture publication failure")):
+                with self.assertRaises(OSError):
+                    capture_stats.save_new_snapshot(pathlib.Path(directory) / "stats.json", sample())
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [])
+
+    def test_actual_loopback_capture_and_redirect_refusal(self):
+        requests = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.path)
+                if self.server.redirect:
+                    self.send_response(302)
+                    self.send_header("Location", "/must-not-follow")
+                    self.end_headers()
+                    return
+                body = json.dumps(sample()).encode() if self.server.valid else b"{}"
+                self.send_response(200)
+                for key, value in (("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                                   ("X-Content-Type-Options", "nosniff"), ("Content-Length", str(len(body)))):
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.redirect, server.valid = False, True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory, mock.patch.dict("os.environ", {"http_proxy": "http://127.0.0.1:1", "HTTP_PROXY": "http://127.0.0.1:1"}):
+                target = pathlib.Path(directory) / "stats.json"
+                address = "127.0.0.1:" + str(server.server_port)
+                capture_stats.capture(address, target)
+                original = target.read_bytes()
+                self.assertEqual(json.loads(original), sample())
+                dangling = pathlib.Path(directory) / "occupied.json"
+                dangling.symlink_to("missing.json")
+                for path, error in (
+                    (target, FileExistsError),
+                    (dangling, FileExistsError),
+                    (pathlib.Path(directory) / "missing-dir" / "stats.json", FileNotFoundError),
+                    (target / "stats.json", NotADirectoryError),
+                ):
+                    with self.subTest(path=path), self.assertRaises(error):
+                        capture_stats.capture(address, path)
+                self.assertEqual(requests, ["/v1/stats"])
+                self.assertEqual(target.read_bytes(), original)
+                self.assertEqual(dangling.readlink(), pathlib.Path("missing.json"))
+                self.assertFalse(dangling.exists())
+                dangling.unlink()
+                server.redirect = True
+                with self.assertRaises(OSError):
+                    capture_stats.capture(address, pathlib.Path(directory) / "redirect.json")
+                self.assertNotIn("/must-not-follow", requests)
+                server.redirect, server.valid = False, False
+                with self.assertRaises(ValueError):
+                    capture_stats.capture(address, pathlib.Path(directory) / "invalid.json")
+                self.assertEqual(list(pathlib.Path(directory).iterdir()), [target])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_capture_does_not_overwrite_target_created_during_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "stats.json"
+
+            def fetch(_opener, _base):
+                self.assertFalse(target.exists())
+                capture_stats.save_new_snapshot(target, sample())
+                return dict(sample(), instance_id="b" * 32)
+
+            with mock.patch("capture_stats.read_stats", side_effect=fetch) as read:
+                with self.assertRaises(FileExistsError):
+                    capture_stats.capture("127.0.0.1:8787", target)
+            read.assert_called_once()
+            self.assertEqual(json.loads(target.read_bytes()), sample())
+            self.assertEqual(list(pathlib.Path(directory).iterdir()), [target])
+
+    def test_fetch_deadline_values_are_bounded_and_finite(self):
+        for value in ("0", "-1", "0.0001", "61", "NaN", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
+                capture_stats.parse_fetch_deadline(value)
+        self.assertEqual(capture_stats.parse_fetch_deadline("0.001"), 0.001)
+        self.assertEqual(capture_stats.parse_fetch_deadline("60"), 60)
+
+    def test_default_fetch_does_not_require_platform_timers(self):
+        with mock.patch("capture_stats.signal", object()):
+            with capture_stats.fetch_time_limit(None):
+                pass
+            with self.assertRaisesRegex(ValueError, "requires POSIX"), capture_stats.fetch_time_limit(1):
+                self.fail("configured deadline was silently ignored")
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "POSIX interval timer required")
+    def test_fetch_deadline_preserves_existing_alarm_and_idle_error(self):
+        alarm, timer = signal.SIGALRM, signal.ITIMER_REAL
+        self.assertEqual(signal.getsignal(alarm), signal.SIG_DFL)
+        self.assertEqual(signal.getitimer(timer), (0, 0))
+        handler = lambda *_: None
+        previous = signal.signal(alarm, handler)
+        try:
+            with self.assertRaisesRegex(ValueError, "already in use"), capture_stats.fetch_time_limit(1):
+                self.fail("existing alarm handler was replaced")
+            self.assertIs(signal.getsignal(alarm), handler)
+        finally:
+            signal.signal(alarm, previous)
+        signal.setitimer(timer, 30)
+        try:
+            with self.assertRaisesRegex(ValueError, "already in use"), capture_stats.fetch_time_limit(1):
+                self.fail("existing alarm timer was replaced")
+            self.assertGreater(signal.getitimer(timer)[0], 20)
+        finally:
+            signal.setitimer(timer, 0)
+        with self.assertRaisesRegex(TimeoutError, "original socket idle timeout"), capture_stats.fetch_time_limit(1):
+            raise TimeoutError("original socket idle timeout")
+        self.assertEqual(signal.getsignal(alarm), signal.SIG_DFL)
+        self.assertEqual(signal.getitimer(timer), (0, 0))
+
+    @unittest.skipUnless(hasattr(signal, "setitimer"), "POSIX interval timer required")
+    def test_optional_fetch_deadline_limits_a_valid_slow_response(self):
+        body = json.dumps(sample()).encode()
+        script = pathlib.Path(capture_stats.__file__).resolve()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                for key, value in (("Content-Type", "application/json"), ("Cache-Control", "no-store"),
+                                   ("X-Content-Type-Options", "nosniff"), ("Content-Length", str(len(body)))):
+                    self.send_header(key, value)
+                self.end_headers()
+                try:
+                    for offset in range(0, len(body), 32):
+                        self.wfile.write(body[offset:offset + 32])
+                        self.wfile.flush()
+                        time.sleep(0.05)  # Every write is within the idle timeout.
+                except (BrokenPipeError, ConnectionResetError):
+                    return  # The deadline test closes this response early.
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server, tempfile.TemporaryDirectory() as directory:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                address = "127.0.0.1:" + str(server.server_port)
+                command = [sys.executable, str(script), address]
+                good, bad = (pathlib.Path(directory) / name for name in ("before.json", "after.json"))
+                allowed = subprocess.run(command + [str(good)], capture_output=True, text=True, timeout=8)
+                self.assertEqual((allowed.returncode, allowed.stderr), (0, ""))
+                self.assertEqual(json.loads(good.read_bytes()), sample())
+                limited = subprocess.run(command + [str(bad), "--fetch-deadline", "0.25"],
+                                         capture_output=True, text=True, timeout=8)
+                self.assertEqual((limited.returncode, limited.stdout), (1, ""))
+                self.assertIn("fetch deadline exceeded", limited.stderr)
+                self.assertEqual(list(pathlib.Path(directory).iterdir()), [good])
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+
+    @unittest.skipUnless(hasattr(capture_stats.os, "mkfifo"), "POSIX FIFO fixture required")
+    def test_nonregular_baseline_rejected_before_fetch_or_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            baseline, target = root / "pipe", root / "output.json"
+            capture_stats.os.mkfifo(baseline)
+            with mock.patch("capture_stats.urllib.request.build_opener") as build:
+                with self.assertRaisesRegex(ValueError, "baseline snapshot:.*regular file"):
+                    capture_stats.capture("127.0.0.1:8787", target, same_instance_as=baseline)
+                build.assert_not_called()
+            self.assertFalse(target.exists())
+
+    def test_saved_input_checks_the_opened_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "saved.json"
+            path.write_text(json.dumps(sample()), encoding="utf-8")
+            read_fd, write_fd = capture_stats.os.pipe()
+            try:
+                # Simulate an input replaced between path inspection and open.
+                with mock.patch("capture_stats.os.open", return_value=read_fd) as opened:
+                    with self.assertRaisesRegex(ValueError, "regular file"):
+                        capture_stats.read_snapshot(path)
+                    if hasattr(capture_stats.os, "O_NONBLOCK"):
+                        self.assertTrue(opened.call_args.args[1] & capture_stats.os.O_NONBLOCK)
+                with self.assertRaises(OSError):
+                    capture_stats.os.fstat(read_fd)
+                read_fd = None
+            finally:
+                capture_stats.os.close(write_fd)
+                if read_fd is not None:
+                    try:
+                        capture_stats.os.close(read_fd)
+                    except OSError:
+                        pass
+
+    def test_failure_has_no_success_stdout_or_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "stats.json"
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = capture_stats.main(["example.com:80", str(target)])
+            self.assertEqual((code, out.getvalue()), (1, ""))
+            self.assertIn("statistics capture failed:", err.getvalue())
+            self.assertFalse(target.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
