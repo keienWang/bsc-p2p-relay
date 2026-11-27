@@ -67,12 +67,10 @@ func run() error {
 		if err := checkP2PListenAddress(cfg.ListenAddr); err != nil {
 			return fmt.Errorf("check P2P listen address: %w", err)
 		}
-		node, err := relay.New(cfg)
-		if err != nil {
+		if err := relay.ValidateConfig(cfg); err != nil {
 			return fmt.Errorf("configure relay: %w", err)
 		}
-		defer node.Close()
-		_, err = fmt.Fprintln(os.Stdout, "configuration check passed; listeners and peer connectivity were not checked")
+		_, err := fmt.Fprintln(os.Stdout, "configuration check passed; listeners and peer connectivity were not checked")
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

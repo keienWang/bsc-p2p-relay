@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/forkid"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -101,14 +102,57 @@ type Health struct {
 	ConfirmationTracking bool   `json:"confirmation_tracking"`
 }
 
-func New(cfg Config) (*Node, error) {
+type preparedConfig struct {
+	genesis      func() *core.Genesis
+	peers, boots []*enode.Node
+}
+
+// ValidateConfig checks network, cache limits, and peer syntax without
+// creating runtime identities or constructing a chain view or Node.
+// Listener address syntax is the caller's responsibility.
+func ValidateConfig(cfg Config) error {
+	_, err := prepareConfig(cfg)
+	return err
+}
+
+func prepareConfig(cfg Config) (preparedConfig, error) {
 	if cfg.MaxPeers < 1 || cfg.MaxPeers > 200 || cfg.CacheCount < 1 || cfg.CacheBytes < MaxRawTransaction || cfg.CacheTTL <= 0 {
-		return nil, errors.New("invalid peer or cache limits")
+		return preparedConfig{}, errors.New("invalid peer or cache limits")
 	}
-	chain, err := network(cfg.Network)
+	genesis, err := genesisConstructor(cfg.Network)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	var peers, boots []*enode.Node
+	for _, url := range cfg.Peers {
+		peer, err := enode.Parse(enode.ValidSchemes, url)
+		if err != nil {
+			return preparedConfig{}, fmt.Errorf("invalid peer: %w", err)
+		}
+		peers = append(peers, peer)
+	}
+	if !cfg.NoDiscovery && cfg.Network == "mainnet" {
+		for _, url := range params.MainnetBootnodes {
+			peer, err := enode.Parse(enode.ValidSchemes, url)
+			if err != nil {
+				return preparedConfig{}, err
+			}
+			boots = append(boots, peer)
+		}
+	}
+	if cfg.Network == "testnet" && len(peers) == 0 {
+		return preparedConfig{}, errors.New("testnet requires at least one explicit --peer; no mainnet bootnodes are used")
+	}
+
+	return preparedConfig{genesis: genesis, peers: peers, boots: boots}, nil
+}
+
+func New(cfg Config) (*Node, error) {
+	prepared, err := prepareConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	chain := chainFromGenesis(prepared.genesis())
 	identity, err := newStatsIdentity(cryptorand.Reader)
 	if err != nil {
 		return nil, err
@@ -118,27 +162,7 @@ func New(cfg Config) (*Node, error) {
 		return nil, err
 	}
 	n := &Node{stats: runtimeStats{identity: identity}, cfg: cfg, chain: chain, cache: newStore(cfg.CacheCount, cfg.CacheBytes, cfg.CacheTTL), peers: make(map[enode.ID]*peerSession), stop: make(chan struct{})}
-	var peers, boots []*enode.Node
-	for _, url := range cfg.Peers {
-		peer, err := enode.Parse(enode.ValidSchemes, url)
-		if err != nil {
-			return nil, fmt.Errorf("invalid peer: %w", err)
-		}
-		peers = append(peers, peer)
-	}
-	if !cfg.NoDiscovery && cfg.Network == "mainnet" {
-		for _, url := range params.MainnetBootnodes {
-			peer, err := enode.Parse(enode.ValidSchemes, url)
-			if err != nil {
-				return nil, err
-			}
-			boots = append(boots, peer)
-		}
-	}
-	if cfg.Network == "testnet" && len(peers) == 0 {
-		return nil, errors.New("testnet requires at least one explicit --peer; no mainnet bootnodes are used")
-	}
-	n.server = &p2p.Server{Config: p2p.Config{PrivateKey: key, Name: "bsc-p2p-relay/0.1.0", MaxPeers: cfg.MaxPeers, MaxPeersPerIP: 4, MaxPendingPeers: 8, DialRatio: 1, ListenAddr: cfg.ListenAddr, NoDiscovery: cfg.NoDiscovery, DiscoveryV4: !cfg.NoDiscovery, BootstrapNodes: boots, StaticNodes: peers, NodeDatabase: "", Protocols: []p2p.Protocol{{Name: "eth", Version: 68, Length: 17, Run: n.runPeer}}}}
+	n.server = &p2p.Server{Config: p2p.Config{PrivateKey: key, Name: "bsc-p2p-relay/0.1.0", MaxPeers: cfg.MaxPeers, MaxPeersPerIP: 4, MaxPendingPeers: 8, DialRatio: 1, ListenAddr: cfg.ListenAddr, NoDiscovery: cfg.NoDiscovery, DiscoveryV4: !cfg.NoDiscovery, BootstrapNodes: prepared.boots, StaticNodes: prepared.peers, NodeDatabase: "", Protocols: []p2p.Protocol{{Name: "eth", Version: 68, Length: 17, Run: n.runPeer}}}}
 	return n, nil
 }
 
