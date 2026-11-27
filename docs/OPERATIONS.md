@@ -98,13 +98,13 @@ metrics exporter, authentication or log level.
 Use this on a candidate launch command before stopping a running relay. A
 successful check exits zero and prints one line. It checks CLI arguments, the
 literal loopback API IP and numeric port (including `:0`), the shape of a
-nonempty P2P listen address and any numeric P2P port's range, network, peer/cache
-limits, and static peer syntax. The checks are shared with startup, but do not
+nonempty P2P listen address (including IPv6 literal syntax and numeric port
+bounds), network, peer/cache limits, and static peer syntax. It does not
 allocate the runtime node, build its in-memory genesis, or generate instance
 IDs or a P2P key. An empty P2P listen address remains allowed. The check does
-not resolve host or
-service names, bind either listener, or start discovery or dialing. It cannot
-establish port availability, peer reachability, readiness or delivery.
+not resolve host or service names, verify that a scoped IPv6 interface exists,
+bind either listener, or start discovery or dialing. It cannot establish port
+availability, peer reachability, readiness or delivery.
 Remove `--check-config` to start normally.
 
 ## Local start, inspection and stop

@@ -77,3 +77,29 @@ func TestRunRelaySkipsConstructionWhenCanceled(t *testing.T) {
 		t.Fatalf("canceled startup returned %v", err)
 	}
 }
+
+func TestCheckP2PListenAddressIPv6AndDeferredNames(t *testing.T) {
+	for _, tc := range []struct {
+		address string
+		valid   bool
+	}{
+		{"", true},
+		{":30303", true},
+		{"127.0.0.1:0", true},
+		{"unresolved.invalid:some-service", true},
+		{"[::]:30303", true},
+		{"[::1]:0", true},
+		{"[::ffff:127.0.0.1]:0", true},
+		{"[fe80::1%unresolved-interface]:0", true},
+		{"[2001:db8::zz]:30303", false},
+		{"[fe80::1%]:30303", false},
+		{"[2001:::1]:30303", false},
+		{"2001:db8::1:30303", false},
+	} {
+		t.Run(tc.address, func(t *testing.T) {
+			if err := checkP2PListenAddress(tc.address); (err == nil) != tc.valid {
+				t.Fatalf("checkP2PListenAddress(%q) = %v; want valid=%v", tc.address, err, tc.valid)
+			}
+		})
+	}
+}

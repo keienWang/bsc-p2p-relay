@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,15 +79,23 @@ func run() error {
 	return runRelay(ctx, stop, cfg, *api, observeOnly, httpDrainTimeout)
 }
 
-// Check only P2P address structure and numeric port bounds. Startup remains
-// responsible for resolving any host or service names and opening listeners.
+// Check P2P address structure, IPv6 literal syntax, and numeric port bounds.
+// Startup remains responsible for resolving names and opening listeners.
 func checkP2PListenAddress(address string) error {
 	if address == "" {
 		return nil // No configured P2P TCP listener.
 	}
-	_, port, err := net.SplitHostPort(address)
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return err
+	}
+	// A host containing a colon cannot be a DNS name. Validate its literal
+	// syntax now; a scoped address still needs a usable interface at startup.
+	if strings.Contains(host, ":") {
+		ip, err := netip.ParseAddr(host)
+		if err != nil || !ip.Is6() {
+			return errors.New("invalid P2P IPv6 literal")
+		}
 	}
 	digits, negative := port, false
 	if len(digits) != 0 && (digits[0] == '+' || digits[0] == '-') {
