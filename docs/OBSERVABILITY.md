@@ -201,7 +201,9 @@ To append a capture to an existing instance's observation window, use:
 python3 scripts/capture_stats.py 127.0.0.1:8787 after.json --same-instance-as before.json
 ```
 
-The collector validates the saved baseline before fetching. Baselines and
+The collector validates the saved baseline before fetching. Saved inputs to both
+`capture_stats.py` and `stats_delta.py` must also be UTF-8 JSON without a byte-order
+mark or raw NUL bytes. Baselines and
 comparison inputs must be regular files (symlinks to regular files are allowed),
 not pipes or devices. This is a file-type check, not a filesystem I/O deadline.
 The collector writes a new

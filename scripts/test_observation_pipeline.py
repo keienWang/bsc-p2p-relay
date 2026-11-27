@@ -123,6 +123,34 @@ class ObservationPipelineTests(unittest.TestCase):
             self.assertEqual(json.loads(target.read_bytes()), value)
             target.unlink()
 
+    def test_saved_baselines_must_use_utf8_before_fetch_or_output(self):
+        snapshot = sample()
+        self.capture("after.json", snapshot)
+        baseline = self.work / "before.json"
+        payload = json.dumps(snapshot)
+        self.responses.put(payload.encode())
+        for data in (*[payload.encode(codec) for codec in ("utf-16", "utf-16-le", "utf-32", "utf-8-sig")],
+                     b"\xff" + payload.encode(), payload.encode() + b"\x00"):
+            with self.subTest(prefix=data[:12]):
+                baseline.write_bytes(data)
+                for script, args in (
+                    ("capture_stats.py", (self.address, "new.json", "--same-instance-as", "before.json")),
+                    ("stats_delta.py", ("before.json", "after.json", "--output", "new.json")),
+                    ("stats_delta.py", ("after.json", "before.json", "--output", "new.json")),
+                ):
+                    result = self.run_cli(script, *args)
+                    self.assertEqual((result.returncode, result.stdout), (1, ""))
+                    self.assertIn("snapshot input must be UTF-8 JSON", result.stderr)
+                    self.assertEqual(sorted(path.name for path in self.work.iterdir()), ["after.json", "before.json"])
+                    self.assertEqual(baseline.read_bytes(), data)
+                    self.assertEqual(self.responses.qsize(), 1, "invalid local input allowed a fetch")
+        baseline.write_text(payload, encoding="utf-8")
+        result = self.run_cli("capture_stats.py", self.address, "ok.json", "--same-instance-as", "before.json")
+        self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
+        self.assertEqual(json.loads((self.work / "ok.json").read_bytes()), snapshot)
+        result = self.run_cli("stats_delta.py", "before.json", "ok.json")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+
     def test_capture_to_delta_preserves_exact_integers_and_nanoseconds(self):
         before = sample()
         after = copy.deepcopy(before)

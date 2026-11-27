@@ -16,7 +16,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-from smoke import MAX_STATS_RESPONSE_BYTES, decode_stats, read_stats
+from smoke import MAX_STATS_RESPONSE_BYTES, decode_json_utf8, decode_stats, read_stats
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -65,7 +65,7 @@ def read_snapshot(path):
         payload = source.read(MAX_STATS_RESPONSE_BYTES + 1)
     if len(payload) > MAX_STATS_RESPONSE_BYTES:
         raise ValueError("snapshot exceeds response bound")
-    return decode_stats(payload)
+    return decode_stats(decode_json_utf8(payload, "snapshot input"))
 
 
 def require_same_instance(before, after):
