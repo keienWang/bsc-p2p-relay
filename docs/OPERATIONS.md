@@ -509,8 +509,9 @@ startup and does not check runtime configuration or reachability.
 This standard-library-only check reads local files. It compares flag names and
 JSON field names with source declarations, checks literal handler/admission error
 strings, and checks relative file/heading links in this runbook plus its
-README/readiness/security entry points. It is a narrow text check, not a Go or
-Markdown parser. Its supported forms are the current direct flag registrations,
+README/readiness/security entry points. Standalone fenced examples are not
+counted as links or headings. This is a narrow text check, not a Go or Markdown
+parser. Its supported forms are the current direct flag registrations,
 explicit JSON tags, direct handler calls and single-variable literal admission
 errors. Regression tests reject known unsupported shapes including aliases,
 receiver registrations, commented selectors, concatenated names, grouped error
