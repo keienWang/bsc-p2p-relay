@@ -4,6 +4,7 @@ import errno
 import io
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import unittest
 from unittest import mock
 
 from smoke import (MAX_STARTUP_LOG_BYTES, check_cli_rejections, check_observation,
+                   check_occupied_ports_cli,
                    ipv6_loopback_available, running_local_relay, startup_endpoint,
                    wait_startup_endpoint)
 
@@ -108,6 +110,66 @@ class LoopbackPortSmokeTest(unittest.TestCase):
         with mock.patch("smoke.socket.socket", side_effect=OSError(errno.EACCES, "fixture")):
             with self.assertRaises(OSError):
                 ipv6_loopback_available()
+
+
+class OccupiedPortSmokeTest(unittest.TestCase):
+    def run_fixture(self, bad=None):
+        attempts = []
+
+        def execute(command, **kwargs):
+            self.assertEqual(command[:4], ["/fixture/bsc-relay", "--no-discovery", "--observe-only", "--p2p"])
+            self.assertEqual(command[5], "--api")
+            addresses = {"--p2p": command[4], "--api": command[6]}
+            self.assertEqual(len(command), 7)
+            flag, stage = (("--api", b"bind HTTP API:") if not attempts else ("--p2p", b"start P2P node:"))
+            address = addresses.pop(flag)
+            self.assertEqual(list(addresses.values()), ["127.0.0.1:0"])
+            host, port = address.split(":")
+            self.assertEqual(host, "127.0.0.1")
+            self.assertNotEqual(port, "0")
+            # The first socket must still be held when each binary runs.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as contender:
+                with self.assertRaises(OSError) as raised:
+                    contender.bind((host, int(port)))
+                self.assertEqual(raised.exception.errno, errno.EADDRINUSE)
+            attempts.append(flag)
+            self.assertEqual(kwargs["timeout"], 5)
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+            status, detail = 1, b""
+            if bad == "status":
+                status = 0
+            if bad == "stage":
+                stage = b"wrong bind stage:"
+            if bad == "address":
+                address = "127.0.0.1:0"
+            if bad == "startup":
+                detail = b"experimental relay started\n"
+            if bad == "budget":
+                detail = b"x" * MAX_STARTUP_LOG_BYTES
+            record = (b'ERROR relay stopped error="' + stage + b" listen tcp " + address.encode("ascii")
+                      + b': bind: address already in use"\n')
+            os.write(kwargs["stdout"].fileno(), record + detail)
+            return subprocess.CompletedProcess(command, status)
+
+        with mock.patch("smoke.subprocess.run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()) as output:
+            if bad is None:
+                check_occupied_ports_cli("/fixture/bsc-relay", "/fixture/work")
+                self.assertIn("PASS: occupied loopback", output.getvalue())
+                self.assertEqual(attempts, ["--api", "--p2p"])
+            else:
+                with self.assertRaisesRegex(AssertionError, "did not report|announced startup|log budget"):
+                    check_occupied_ports_cli("/fixture/bsc-relay", "/fixture/work")
+                self.assertEqual(attempts, ["--api"])
+                self.assertEqual(output.getvalue(), "")
+
+    def test_actual_reservation_covers_both_cli_stages(self):
+        self.run_fixture()
+
+    def test_never_accepts_wrong_stage_address_status_startup_or_excess_logs(self):
+        for bad in ("stage", "address", "status", "startup", "budget"):
+            with self.subTest(bad=bad):
+                self.run_fixture(bad)
 
 
 class StartupEndpointSmokeTest(unittest.TestCase):

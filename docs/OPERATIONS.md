@@ -162,7 +162,11 @@ cases against the same binary. These cases put an invalid API address before
 any leftover argument, so even the older CLI without this check exits before
 creating a Node. The command-package Go tests retain this guard and separately
 check that flag-only arguments, including a bare final `--`, reach the normal
-address-validation path. These are argument-parsing tests, not delivery tests.
+address-validation path. These are argument-parsing tests, not delivery tests. The smoke also holds an
+ephemeral loopback TCP port open while starting the binary, first as the API
+port and then as the P2P port. Both attempts must exit with their own bind
+diagnostic and must not announce startup. No client requests are sent to the held
+ports.
 
 Stop caller submissions first. Send Ctrl-C to the foreground process, or SIGTERM
 to the verified relay PID. HTTP requests get up to the configured drain timeout

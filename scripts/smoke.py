@@ -270,6 +270,7 @@ def main(binary):
     with tempfile.TemporaryDirectory(prefix="relay-cli-smoke-") as work:
         check_cli_rejections(binary, work)
         check_configuration_cli(binary, work)
+        check_occupied_ports_cli(binary, work)
         check_configured_drain_cli(binary, work)
         if list(pathlib.Path(work).iterdir()):
             raise AssertionError("CLI rejection left persistent data files")
@@ -365,6 +366,32 @@ def running_local_relay(binary, work, host, bind, observe_only):
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)
+
+
+def check_occupied_ports_cli(binary, work):
+    """Qualify packaged CLI diagnostics without contacting any running service."""
+    host = "127.0.0.1"
+    ephemeral = host + ":0"
+    for flag, stage in (("--api", b"bind HTTP API:"), ("--p2p", b"start P2P node:")):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved, tempfile.TemporaryFile() as log:
+            reserved.bind((host, 0))
+            reserved.listen()
+            address = f"{host}:{reserved.getsockname()[1]}"
+            args = {name: address if name == flag else ephemeral for name in ("--p2p", "--api")}
+            result = subprocess.run(
+                [binary, "--no-discovery", "--observe-only", "--p2p", args["--p2p"], "--api", args["--api"]],
+                cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                timeout=5, check=False,
+            )
+            output = os.pread(log.fileno(), MAX_STARTUP_LOG_BYTES + 1, 0)
+            require(len(output) <= MAX_STARTUP_LOG_BYTES, f"{flag} conflict exceeded log budget")
+            failure = b"error=\"" + stage + b" listen tcp " + address.encode("ascii") + b":"
+            require(result.returncode == 1 and any(
+                b"ERROR relay stopped" in line and failure in line and b"address already in use" in line
+                for line in output.splitlines()
+            ), f"{flag} conflict did not report the occupied port and stage (exit {result.returncode}): {output!r}")
+            require(b"experimental relay started" not in output, f"{flag} conflict incorrectly announced startup")
+    print("PASS: occupied loopback HTTP and P2P ports report distinct startup failures")
 
 
 def check_configured_drain_cli(binary, work):
