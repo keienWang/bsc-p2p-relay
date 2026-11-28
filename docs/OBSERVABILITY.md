@@ -345,13 +345,29 @@ Limits are unsigned 64-bit integers written in ASCII decimal. Equality passes.
 A selected delta above its limit exits `3` after emitting the complete
 comparison or saving it with `--output`. Unselected increases do not trigger
 that exit, but a decrease in **any** counter still makes the comparison invalid.
-Duplicate selectors are usage errors. Use at most one of the three assertion
-modes. Without an assertion mode, valid comparisons exit `0` regardless of
-counter growth. These limits apply to sampled counts, not rates; a quiet sample
-does not prove that the relay, peers, or chain were idle.
+Duplicate selectors within one limit type are usage errors. The three
+upper-bound modes (all unchanged, selected unchanged, and explicit maximum)
+are mutually exclusive.
 
-Add `--explain-guard` with any of the three counter guards to log each exceeded
-limit to stderr. For example, a delta of 3 against a limit of 2 produces
+Use repeatable `--min-counter-increase GROUP.COUNTER=COUNT` to require observed
+activity, for example to distinguish a locally rejected test request from a
+quiet interval while ruling out HTTP concurrency refusals:
+
+```sh
+python3 scripts/stats_delta.py before.json after.json \
+  --min-counter-increase submit.rejected_validation_total=1 \
+  --max-counter-increase http.concurrency_rejected_total=0 \
+  --explain-guard
+```
+
+A delta below its minimum exits `3` after reporting the comparison. Minimums
+can be combined with one upper-bound mode; if a counter has both bounds, the
+minimum cannot exceed the maximum. Without a guard, valid comparisons exit
+`0` regardless of counter growth. Limits apply to sampled counts, not rates;
+other activity in the same interval may contribute to those counts.
+
+Add `--explain-guard` with a counter guard to log each failed limit to stderr.
+For example, a delta of 3 against a maximum of 2 produces
 `counter guard exceeded: http.concurrency_rejected_total delta=3, limit=2`.
 Exit codes, stdout, and saved reports do not change. Passing guards stay quiet;
 without a counter guard, `--explain-guard` is a usage error.

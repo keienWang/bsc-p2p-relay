@@ -21,8 +21,7 @@ def parse_counter_budget(value):
     selector, separator, digits = value.partition("=")
     if not separator or selector not in SELECTABLE_COUNTERS:
         raise argparse.ArgumentTypeError("expected an input counter as GROUP.COUNTER=COUNT")
-    group, field = selector.split(".")
-    return group, field, parse_uint64(digits, "counter limit must be an ASCII decimal uint64")
+    return selector, parse_uint64(digits, "counter limit must be an ASCII decimal uint64")
 
 
 def parse_uint64(digits, message):
@@ -85,18 +84,19 @@ def compare_snapshots(before, after, *, require_forward_time=False, min_gap_ms=N
     }
 
 
-def exceeded_limits(result, *, unchanged=False, selected=(), budgets=None):
-    if unchanged:
-        limits = dict.fromkeys(SELECTABLE_COUNTERS, 0)
-    elif selected:
-        limits = dict.fromkeys(selected, 0)
-    else:
-        limits = {f"{group}.{field}": limit for (group, field), limit in (budgets or {}).items()}
+def collect_limits(parser, values, flag):
+    limits = {}
+    for selector, count in values or ():
+        if selector in limits:
+            parser.error(f"duplicate {flag} counter: {selector}")
+        limits[selector] = count
+    return limits
+
+
+def counter_limits(result, limits):
     for selector, limit in sorted(limits.items()):
         group, field = selector.split(".")
-        delta = result[group + "_delta"][field]
-        if delta > limit:
-            yield selector, delta, limit
+        yield selector, result[group + "_delta"][field], limit
 
 
 def main(argv=None):
@@ -120,21 +120,27 @@ def main(argv=None):
     guard.add_argument("--max-counter-increase", action="append", type=parse_counter_budget,
                        metavar="GROUP.COUNTER=COUNT",
                        help="exit 3 if a selected counter delta exceeds its limit; repeatable")
+    parser.add_argument("--min-counter-increase", action="append", type=parse_counter_budget,
+                        metavar="GROUP.COUNTER=COUNT",
+                        help="exit 3 if a selected counter delta is below its minimum; repeatable")
     parser.add_argument("--explain-guard", action="store_true",
-                        help="on exit 3, log each exceeded counter limit to stderr without changing the report")
+                        help="on exit 3, log each failed counter limit to stderr without changing the report")
     args = parser.parse_args(argv)
-    if (args.explain_guard and not (args.require_unchanged or args.require_unchanged_counter
-                                    or args.max_counter_increase)):
-        parser.error("--explain-guard requires a counter guard")
     if (args.min_observation_gap_ms is not None and args.max_observation_gap_ms is not None
             and args.min_observation_gap_ms > args.max_observation_gap_ms):
         parser.error("minimum observation gap cannot exceed maximum")
-    budgets = {}
-    for group, field, limit in args.max_counter_increase or ():
-        key = group, field
-        if key in budgets:
-            parser.error(f"duplicate --max-counter-increase counter: {group}.{field}")
-        budgets[key] = limit
+    minimums = collect_limits(parser, args.min_counter_increase, "--min-counter-increase")
+    if args.require_unchanged:
+        maximums = dict.fromkeys(SELECTABLE_COUNTERS, 0)
+    elif args.require_unchanged_counter:
+        maximums = dict.fromkeys(args.require_unchanged_counter, 0)
+    else:
+        maximums = collect_limits(parser, args.max_counter_increase, "--max-counter-increase")
+    if args.explain_guard and not (minimums or maximums):
+        parser.error("--explain-guard requires a counter guard")
+    for selector, minimum in minimums.items():
+        if selector in maximums and minimum > maximums[selector]:
+            parser.error(f"minimum counter increase exceeds maximum: {selector}")
     stage = "before snapshot"
     try:
         before = read_snapshot(args.before)
@@ -153,12 +159,16 @@ def main(argv=None):
         print(json.dumps(result, sort_keys=True, indent=2))
     else:
         print("Saved validated statistics comparison.")
-    exceeded = list(exceeded_limits(result, unchanged=args.require_unchanged,
-                                    selected=args.require_unchanged_counter, budgets=budgets))
+    exceeded = [(name, delta, limit) for name, delta, limit in counter_limits(result, maximums)
+                if delta > limit]
+    missed = [(name, delta, limit) for name, delta, limit in counter_limits(result, minimums)
+              if delta < limit]
     if args.explain_guard:
         for selector, delta, limit in exceeded:
             print(f"counter guard exceeded: {selector} delta={delta}, limit={limit}", file=sys.stderr)
-    return 3 if exceeded else 0
+        for selector, delta, limit in missed:
+            print(f"counter guard below minimum: {selector} delta={delta}, minimum={limit}", file=sys.stderr)
+    return 3 if exceeded or missed else 0
 
 
 if __name__ == "__main__":

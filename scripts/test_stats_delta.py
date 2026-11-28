@@ -455,5 +455,59 @@ class StatsDeltaTests(unittest.TestCase):
                     self.assertFalse((root / "invalid.json").exists())
 
 
+    def test_cli_requires_counter_activity_and_can_also_bound_failures(self):
+        command = [sys.executable, str(pathlib.Path(stats_delta.__file__).resolve())]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            before, after = sample(), sample()
+            accepted = "submit.accepted_new_cache_lifetime_total"
+            refused = "http.concurrency_rejected_total"
+            after["submit"]["accepted_new_cache_lifetime_total"] = (1 << 64) - 1
+            for name, value in (("before.json", before), ("after.json", after)):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+
+            def run(*args, after_file="after.json"):
+                return subprocess.run(command + ["before.json", after_file, *args], cwd=root,
+                                      capture_output=True, text=True, timeout=5, check=False)
+
+            minimum, maximum = "--min-counter-increase", "--max-counter-increase"
+            floor, cap = f"{accepted}={(1 << 64) - 1}", f"{refused}=0"
+            ordinary = run()
+            passed = run(minimum, floor, maximum, cap, "--explain-guard")
+            self.assertEqual((passed.returncode, passed.stdout, passed.stderr), (0, ordinary.stdout, ""))
+            idle = run(minimum, floor, maximum, cap, "--explain-guard",
+                       "--output", "idle.json", after_file="before.json")
+            self.assertEqual(idle.returncode, 3)
+            self.assertIn(f"counter guard below minimum: {accepted} delta=0, minimum={(1 << 64) - 1}", idle.stderr)
+            self.assertEqual((root / "idle.json").read_text(), run(after_file="before.json").stdout)
+            selected = run(minimum, floor, "--require-unchanged-counter", refused)
+            self.assertEqual((selected.returncode, selected.stdout, selected.stderr), (0, ordinary.stdout, ""))
+
+            exact = run(minimum, floor, maximum, floor)
+            self.assertEqual((exact.returncode, exact.stdout, exact.stderr), (0, ordinary.stdout, ""))
+            noisy = sample()
+            noisy["http"]["concurrency_rejected_total"] = 1
+            (root / "noisy.json").write_text(json.dumps(noisy), encoding="utf-8")
+            failed = run(minimum, floor, maximum, cap, "--explain-guard", after_file="noisy.json")
+            self.assertEqual((failed.returncode, failed.stdout), (3, run(after_file="noisy.json").stdout))
+            self.assertIn(f"counter guard exceeded: {refused} delta=1, limit=0", failed.stderr)
+            self.assertIn(f"counter guard below minimum: {accepted} delta=0", failed.stderr)
+
+            cases = (
+                (minimum, floor, minimum, floor),
+                (minimum, f"{accepted}=2", maximum, f"{accepted}=1"),
+                (minimum, floor, "--require-unchanged"),
+                (minimum, floor, "--require-unchanged-counter", accepted),
+                (minimum, f"{accepted}={1 << 64}"),
+                (minimum, f"{accepted}=١"),
+            )
+            for bad in cases:
+                with self.subTest(bad=bad):
+                    invalid = run(*bad, "--output", "invalid.json", after_file="missing.json")
+                    self.assertEqual((invalid.returncode, invalid.stdout), (2, ""))
+                    self.assertNotIn("after snapshot:", invalid.stderr)
+                    self.assertFalse((root / "invalid.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
