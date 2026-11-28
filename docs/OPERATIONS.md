@@ -187,7 +187,9 @@ Any uncompleted or unanswered client request has an uncertain outcome.
 
 A terminal listener error after startup is reported as `serve HTTP API:`.
 Unlike signal-driven shutdown, this failure closes existing HTTP connections
-immediately before the P2P server is stopped; it does not attempt an HTTP drain.
+immediately before the P2P server is stopped when detected first. If signal
+handling already began the drain, the exit status still preserves an independent
+terminal listener error (and reports both errors if the drain also fails).
 
 ### Node lifecycle callers
 

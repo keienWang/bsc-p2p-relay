@@ -97,3 +97,26 @@ func TestRunRelayClosesHTTPConnectionsOnServeFailure(t *testing.T) {
 		t.Fatalf("accepted connection read = %v; want EOF after Serve error, not a timeout", err)
 	}
 }
+
+// The signal branch is already selected when the Serve result is delivered.
+// A successful listener drain must not turn this terminal failure into exit 0.
+func TestWaitHTTPServeKeepsTerminalErrorDuringCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := errors.New("test terminal listener failure")
+	result := make(chan error, 1)
+	err := waitHTTPServe(ctx, func() { result <- want }, &http.Server{}, result, time.Second)
+	if !errors.Is(err, want) || !strings.HasPrefix(err.Error(), "serve HTTP API: ") {
+		t.Fatalf("waitHTTPServe = %v, want preserved terminal listener failure", err)
+	}
+}
+
+func TestWaitHTTPServeReapsNormalCloseAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	err := waitHTTPServe(ctx, func() { result <- http.ErrServerClosed }, &http.Server{}, result, time.Second)
+	if err != nil || len(result) != 0 {
+		t.Fatalf("waitHTTPServe = %v; pending Serve results = %d", err, len(result))
+	}
+}

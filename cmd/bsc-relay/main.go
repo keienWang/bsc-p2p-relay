@@ -163,6 +163,10 @@ func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay
 	errs := make(chan error, 1)
 	go func() { errs <- srv.Serve(listener) }()
 	slog.Info("experimental relay started; no chain/state verification or confirmations", "network", cfg.Network, "api", listener.Addr().String(), "observe_only", observeOnly, "enode", node.Enode())
+	return waitHTTPServe(ctx, stopSignals, srv, errs, drainTimeout)
+}
+
+func waitHTTPServe(ctx context.Context, stopSignals func(), srv *http.Server, errs <-chan error, drainTimeout time.Duration) error {
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -174,10 +178,22 @@ func runRelayWithHTTPListener(ctx context.Context, stopSignals func(), cfg relay
 			}
 			return serveErr
 		}
+		return drainRelayHTTP(srv, drainTimeout)
 	case <-ctx.Done():
 		// A second signal may terminate the process if graceful shutdown stalls.
 		stopSignals()
+		drainErr := drainRelayHTTP(srv, drainTimeout)
+		// Shutdown closes the listener and waits for registered Serve loops.
+		// Consume the result even if the signal won the select: an independent
+		// terminal listener error must not disappear behind a clean drain.
+		if err := <-errs; !errors.Is(err, http.ErrServerClosed) {
+			return errors.Join(fmt.Errorf("serve HTTP API: %w", err), drainErr)
+		}
+		return drainErr
 	}
+}
+
+func drainRelayHTTP(srv *http.Server, drainTimeout time.Duration) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := shutdownHTTP(shutdown, srv); err != nil {
