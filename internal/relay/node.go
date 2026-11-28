@@ -317,7 +317,7 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	if n.readyPeers == 0 {
 		return result, ErrNoPeers, submitRejectedNoPeers
 	}
-	fresh, err := n.cache.add(tx, time.Now())
+	fresh, expires, err := n.cache.addWithExpiry(tx, time.Now())
 	if err != nil {
 		outcome := submitOther
 		if errors.Is(err, ErrCacheFull) {
@@ -327,7 +327,8 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 	}
 	result.Duplicate = !fresh
 	now := time.Now()
-	expires := n.cache.expiry(tx.Hash())
+	// Maintenance may have removed this lifetime since admission. A fresh
+	// clock read (and the writer's deadline check) still excludes expired items.
 	if expires.IsZero() || !now.Before(expires) {
 		return result, ErrAdmissionExpired, submitRejectedAdmissionExpired
 	}
@@ -347,12 +348,12 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 		if !now.Before(p.sentNextSweep) {
 			p.pruneSent(now)
 		}
-		if deadline, ok := p.sent[tx.Hash()]; ok {
+		if deadline, ok := p.sent[result.Hash]; ok {
 			if now.Before(deadline) {
 				alreadyQueued++
 				continue
 			}
-			delete(p.sent, tx.Hash())
+			delete(p.sent, result.Hash)
 		}
 		eligible++
 		// Only a new admission needs capacity. A valid duplicate above must
@@ -365,7 +366,7 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 		}
 		select {
 		case p.queue <- outbound{code: eth.TransactionsMsg, data: types.Transactions{tx}, expires: expires}:
-			p.recordSent(tx.Hash(), expires)
+			p.recordSent(result.Hash, expires)
 			result.QueuedPeers++
 		default:
 		}
@@ -374,7 +375,7 @@ func (n *Node) submit(raw []byte) (Submission, error, submitOutcome) {
 		result.Stage = "cached"
 		if eligible > 0 || alreadyQueued == 0 {
 			if fresh {
-				n.cache.remove(tx.Hash())
+				n.cache.remove(result.Hash)
 			}
 			return result, ErrQueuesFull, submitRejectedQueueUnavailable
 		}

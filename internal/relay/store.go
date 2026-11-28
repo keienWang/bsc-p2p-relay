@@ -107,17 +107,20 @@ func (s *store) release() {
 }
 
 func (s *store) prune(now time.Time) { s.mu.Lock(); defer s.mu.Unlock(); s.pruneLocked(now) }
-func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
+
+// addWithExpiry returns the lifetime selected by admission under the same
+// lock as the cache lookup. Duplicate submissions do not extend that lifetime.
+func (s *store) addWithExpiry(tx *types.Transaction, now time.Time) (bool, time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pruneLocked(now)
 	hash := tx.Hash()
-	if _, ok := s.entries[hash]; ok {
-		return false, nil
+	if e := s.entries[hash]; e != nil {
+		return false, e.expires, nil
 	}
 	size := int(tx.Size())
 	if len(s.entries) >= s.maxCount || size > s.maxBytes-s.bytes {
-		return false, ErrCacheFull
+		return false, time.Time{}, ErrCacheFull
 	}
 	// Grow only after admission succeeds, and cap even the backing array at
 	// maxCount. Rollbacks remove their slot immediately; there are no tombstones.
@@ -135,7 +138,7 @@ func (s *store) add(tx *types.Transaction, now time.Time) (bool, error) {
 	s.entries[hash] = e
 	heap.Push(&s.expiries, e)
 	s.bytes += size
-	return true, nil
+	return true, e.expires, nil
 }
 func (s *store) get(h common.Hash, now time.Time) *types.Transaction {
 	s.mu.Lock()

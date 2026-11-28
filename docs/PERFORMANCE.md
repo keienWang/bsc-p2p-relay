@@ -92,3 +92,17 @@ snapshot core's zero heap-allocation property. That narrow regression does not
 claim zero allocations for JSON encoding, HTTP, metadata initialization or the
 relay process. The existing lock-independence and concurrency tests remain the
 correctness checks; benchmarks do not replace them.
+
+## Cache admission deadline lookup
+
+Submission takes the admitted lifetime from the cache's existing critical
+section rather than locking the cache again for the same hash. A duplicate still
+uses its original expiry, and the submission and writer still check freshness.
+`BenchmarkCachedAdmissionDeadline` measures one prepared cached transaction,
+with and without the additional lookup. It excludes validation, queue writes,
+and network traffic, so it does not establish end-to-end latency or throughput.
+
+```sh
+GOMAXPROCS=2 go test -ldflags=-extldflags=-Wl,-z,noexecstack ./internal/relay \
+  -run='^$' -bench='^BenchmarkCachedAdmissionDeadline$' -benchmem -benchtime=300ms -count=5
+```
